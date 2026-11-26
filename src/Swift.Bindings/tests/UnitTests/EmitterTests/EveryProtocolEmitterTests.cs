@@ -4476,9 +4476,134 @@ public class EveryProtocolEmitterTests
 
         // Dispatched (not rejected) and bridged through the ObjC arm, not the raw-bytes path.
         Assert.DoesNotContain("closure method 'process' cannot be dispatched", output);
-        Assert.Contains("let amountNS = amount as Swift.AnyObject", output);
-        Assert.Contains("Unmanaged.passUnretained(amountNS).toOpaque()", output);
+        Assert.Contains("let __amountBridged = amount as Swift.AnyObject", output);
+        Assert.Contains("Unmanaged.passUnretained(__amountBridged).toOpaque()", output);
         Assert.DoesNotContain("var amountCopy = amount", output);
+    }
+
+    private void RegisterBridgeableURL()
+    {
+        var foundation = new ModuleTypeDatabase("Foundation", "/fake/Foundation.framework/Foundation");
+        var urlName = SwiftTypeName.FromModuleQualifiedName("Foundation.URL");
+        foundation.RegisterType(urlName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSUrl"),
+            SwiftTypeName = urlName,
+            MetadataAccessor = "$s10Foundation3URLVMa",
+            Flags = TypeRecordFlags.ObjCBridgeable | TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Struct,
+        });
+        _typeDatabase.AddModuleDatabase(foundation);
+    }
+
+    public static TheoryData<string, bool> BridgedContainerParameters => new()
+    {
+        { "[URL]", false },
+        { "Set<URL>", false },
+        { "[String: URL]", false },
+        { "[URL: String]", false },
+        { "[String: [URL]]", false },
+        { "[URL]", true },
+    };
+
+    private static TypeSpec BridgedContainer(string shape)
+    {
+        var url = new NamedTypeSpec("Foundation.URL");
+        var text = new NamedTypeSpec("Swift.String");
+        return shape switch
+        {
+            "[URL]" => new NamedTypeSpec("Swift.Array", url),
+            "Set<URL>" => new NamedTypeSpec("Swift.Set", url),
+            "[String: URL]" => new NamedTypeSpec("Swift.Dictionary", text, url),
+            "[URL: String]" => new NamedTypeSpec("Swift.Dictionary", url, text),
+            "[String: [URL]]" => new NamedTypeSpec("Swift.Dictionary", text, new NamedTypeSpec("Swift.Array", url)),
+            _ => throw new ArgumentOutOfRangeException(nameof(shape)),
+        };
+    }
+
+    [Theory]
+    [MemberData(nameof(BridgedContainerParameters))]
+    public void EmitProtocolExtension_ObjCBridgeableContainerParam_HandsTheConformerTheBridgedCollection(string shape, bool optional)
+    {
+        // A container whose elements bridge to Objective-C crosses to the C# conformer as the
+        // collection it bridges to, lent at +0 for the call (so a dropped call leaks nothing), never
+        // as the native Swift storage the receiver cannot read.
+        RegisterBridgeableURL();
+        var container = BridgedContainer(shape);
+        var protocol = CreateSimpleProtocol("URLContainerSink");
+        protocol.Methods.Add(CreateMethodWithValueParam("describe", "urls",
+            optional ? new NamedTypeSpec("Swift.Optional", container) : container));
+
+        var output = EmitProtocolExtension(protocol);
+
+        Assert.Contains(optional
+            ? "let __urlsBridged = urls.map { $0 as Swift.AnyObject }"
+            : "let __urlsBridged = urls as Swift.AnyObject", output);
+        Assert.Contains(optional
+            ? "var urlsRef = __urlsBridged.map { Swift.Unmanaged.passUnretained($0).toOpaque() }"
+            : "var urlsRef = Swift.Unmanaged.passUnretained(__urlsBridged).toOpaque()", output);
+        Assert.DoesNotContain("passRetained(urls", output);
+        Assert.Contains("&urlsRef", output);
+        Assert.DoesNotContain("urlsCopy", output);
+    }
+
+    [Theory]
+    [InlineData("[URL]", "Swift.Array<Foundation.URL>")]
+    [InlineData("Set<URL>", "Swift.Set<Foundation.URL>")]
+    [InlineData("[String: URL]", "Swift.Dictionary<Swift.String, Foundation.URL>")]
+    public void EmitProtocolExtension_OptionalObjCBridgeableContainerReturn_TakesTheOneObjectPointerWord(string shape, string swiftName)
+    {
+        // The conformer returns an optional bridged container as one optional Objective-C pointer
+        // (zero for nil, the +1 collection otherwise), so the thunk reads that word and takes the
+        // retain; reading it as the container's native Optional would misread the buffer.
+        RegisterBridgeableURL();
+        var protocol = CreateSimpleProtocol("URLContainerSource");
+        var method = CreateMethodReturning("make", "Swift.Void");
+        method.CSSignature[0] = method.CSSignature[0] with { SwiftTypeSpec = new NamedTypeSpec("Swift.Optional", BridgedContainer(shape)) };
+        protocol.Methods.Add(method);
+
+        var output = EmitProtocolExtension(protocol);
+
+        Assert.Contains("resultPtr.load(as: Swift.UnsafeRawPointer?.self)", output);
+        Assert.Contains($"takeRetainedValue() as! {swiftName}", output);
+        Assert.DoesNotContain("assumingMemoryBound(to:", output);
+    }
+
+    [Fact]
+    public void EmitProtocolExtension_InOutObjCBridgeableContainerParam_EmitsTrapStubNotDispatch()
+    {
+        // The bridged collection carries no write-back, so an inout one traps as an inout URL does.
+        RegisterBridgeableURL();
+        var protocol = CreateSimpleProtocol("URLContainerMutator");
+        protocol.Methods.Add(CreateMethodWithInOutParam("update", "urls", BridgedContainer("[URL]")));
+
+        var output = EmitProtocolExtension(protocol);
+
+        Assert.Contains("inout parameter that cannot be written back cannot be dispatched", output);
+        Assert.DoesNotContain("urlsRef", output);
+        Assert.DoesNotContain("urlsCopy", output);
+    }
+
+    private static MethodDecl CreateMethodWithValueParam(string name, string paramLabel, TypeSpec paramType)
+    {
+        var method = CreateMethodWithInOutParam(name, paramLabel, paramType);
+        return method with
+        {
+            CSSignature = new List<ArgumentDecl>
+            {
+                method.CSSignature[0],
+                new ArgumentDecl
+                {
+                    Name = paramLabel,
+                    SwiftTypeSpec = paramType,
+                    PrivateName = paramLabel,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            }
+        };
     }
 
     [Fact]
@@ -4519,7 +4644,7 @@ public class EveryProtocolEmitterTests
     {
         // An inout Optional<ObjC-bridgeable VALUE> param (inout Decimal?) has the same limitation as
         // the non-optional inout case: the mutated value cannot be bridged back across the ObjC bridge.
-        // The param-in optional arm binds `var amountRef = amountNS.map { passUnretained($0).toOpaque() }`
+        // The param-in optional arm binds `var amountRef = __amountBridged.map { passUnretained($0).toOpaque() }`
         // (an Optional<UnsafeMutableRawPointer>) as its writeback source, so a dispatched body would emit
         // `amount = amountRef` — assigning UnsafeMutableRawPointer? to Decimal? → the generated wrapper
         // fails to compile. The method must route to the SAME fatalError trap stub as the non-optional
@@ -4546,7 +4671,7 @@ public class EveryProtocolEmitterTests
         Assert.Contains("inout parameter that cannot be written back cannot be dispatched", output);
         Assert.Contains("amount: inout", output);
         Assert.DoesNotContain("amountRef", output);
-        Assert.DoesNotContain("amountNS", output);
+        Assert.DoesNotContain("__amountBridged", output);
     }
 
     [Fact]
@@ -5933,6 +6058,42 @@ public class EveryProtocolEmitterTests
         // would compile once renamed but hand the callee one section twice.
         var call = SingleLineContaining(output, "&inSectionCopy");
         Assert.Contains("&inSection2Copy", call);
+    }
+
+    [Theory]
+    [InlineData("__urlsBridged")]
+    [InlineData("urlsRef")]
+    public void EmitProtocolExtension_ParameterSpelledAsASiblingsBodyLocal_MovesAsideUnderItsLabel(string sibling)
+    {
+        // The body binds `__urlsBridged` and `urlsRef` for a bridged `urls`; a sibling parameter
+        // spelled that way would be shadowed and hand the conformer the bridged object instead.
+        RegisterBridgeableURL();
+        var protocol = CreateSimpleProtocol("URLContainerSink");
+        var method = CreateMethodDecl("inspect");
+        foreach (var (label, type) in new[]
+                 {
+                     ("urls", (TypeSpec)new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Foundation.URL"))),
+                     (sibling, new NamedTypeSpec("Swift.Int")),
+                 })
+        {
+            method.CSSignature.Add(new ArgumentDecl
+            {
+                Name = label,
+                SwiftTypeSpec = type,
+                PrivateName = "",
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = null,
+                ModuleDecl = null
+            });
+        }
+        protocol.Methods.Add(method);
+
+        var output = EmitProtocolExtension(protocol);
+
+        Assert.Contains($"{sibling} {sibling}2: Swift.Int", SingleLineContaining(output, "func inspect("));
+        Assert.Contains($"var {sibling}2Copy = {sibling}2", output);
+        Assert.Contains($"&{sibling}2Copy", SingleLineContaining(output, "&urlsRef"));
     }
 
     /// <summary>

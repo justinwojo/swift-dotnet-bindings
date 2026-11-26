@@ -3332,7 +3332,7 @@ public class EveryProtocolEmitter
                 return Swift.Unmanaged<Swift.AnyObject>.fromOpaque(resultObjPtr).{{take}}() as! {{swiftTypeNameForMetatype}}
                 """);
         }
-        else if (GetOptionalObjCBridgeableValueInnerName(property.SwiftTypeSpec) is string optBridgeableInner)
+        else if (GetOptionalObjCPointerReturnInnerName(property.SwiftTypeSpec) is string optBridgeableInner)
         {
             EmitOptionalObjCBridgeableValueReturn(writer, optBridgeableInner);
         }
@@ -3422,8 +3422,8 @@ public class EveryProtocolEmitter
         {
             writer.WriteLines($$"""
                 var selfProto: {{protoName}} = self
-                let newValueNS = newValue as Swift.AnyObject
-                var newValueRef = Swift.Unmanaged.passUnretained(newValueNS).toOpaque()
+                let __newValueBridged = newValue as Swift.AnyObject
+                var newValueRef = Swift.Unmanaged.passUnretained(__newValueBridged).toOpaque()
                 {{fnExpr}}({{branchVtableExpr}}, &selfProto, &newValueRef)
                 """);
         }
@@ -3431,16 +3431,26 @@ public class EveryProtocolEmitter
         {
             // Optional ObjC-bridgeable VALUE setter (URL?): pass a single optional ObjC POINTER word
             // (nil = 0x0), borrowing (+0) the bridged NSObject — the write mirror of the reverse-RETURN
-            // optional-bridgeable arm. `newValueNS` (Optional<AnyObject>) holds the bridged object alive
+            // optional-bridgeable arm. `__newValueBridged` (Optional<AnyObject>) holds the bridged object alive
             // across the call; `newValueRef` (Optional<UnsafeMutableRawPointer>) is the one nil-optimized
             // word the C# receiver reads as a bare IntPtr. The plain-value `else` arm below would pass the
             // multi-word Optional<URL> bytes, which the receiver then misreads as one word → layout mismatch.
             writer.WriteLines($$"""
                 var selfProto: {{protoName}} = self
-                let newValueNS = newValue.map { $0 as Swift.AnyObject }
-                var newValueRef = newValueNS.map { Swift.Unmanaged.passUnretained($0).toOpaque() }
+                let __newValueBridged = newValue.map { $0 as Swift.AnyObject }
+                var newValueRef = __newValueBridged.map { Swift.Unmanaged.passUnretained($0).toOpaque() }
                 {{fnExpr}}({{branchVtableExpr}}, &selfProto, &newValueRef)
                 """);
+        }
+        else if (IsObjCBridgedContainerInput(property.SwiftTypeSpec)
+            && TryBuildObjCPointerInput(property.SwiftTypeSpec, "newValue", "newValue", out var containerLines))
+        {
+            // A container of Objective-C-bridgeable elements crosses as the collection it bridges
+            // to, lent at +0 for the call; see TryBuildObjCPointerInput.
+            writer.WriteLine($"var selfProto: {protoName} = self");
+            foreach (var line in containerLines)
+                writer.WriteLine(line);
+            writer.WriteLine($"{fnExpr}({branchVtableExpr}, &selfProto, &newValueRef)");
         }
         else if (RequiresExplicitValuePointer(property.SwiftTypeSpec))
         {
@@ -3615,7 +3625,7 @@ public class EveryProtocolEmitter
                 return Swift.Unmanaged<Swift.AnyObject>.fromOpaque(resultObjPtr).{{take}}() as! {{returnTypeNameForMetatype}}
                 """);
         }
-        else if (GetOptionalObjCBridgeableValueInnerName(subscript.ReturnTypeSpec) is string optBridgeableInner)
+        else if (GetOptionalObjCPointerReturnInnerName(subscript.ReturnTypeSpec) is string optBridgeableInner)
         {
             EmitOptionalObjCBridgeableValueReturn(writer, optBridgeableInner);
         }
@@ -3707,7 +3717,13 @@ public class EveryProtocolEmitter
         for (int i = 0; i < parameters.Count; i++)
         {
             var internalName = $"arg{i}";
-            if (RequiresExplicitValuePointer(parameters[i].SwiftTypeSpec))
+            if (TryBuildObjCPointerInput(parameters[i].SwiftTypeSpec, internalName, internalName, out var objcLines))
+            {
+                // An index that crosses as an Objective-C object; BuildArgRefs passes `&arg{i}Ref`.
+                foreach (var line in objcLines)
+                    writer.WriteLine(line);
+            }
+            else if (RequiresExplicitValuePointer(parameters[i].SwiftTypeSpec))
             {
                 foreach (var line in BuildValueStorageSetup(
                     $"{internalName}CopyPtr", GetSwiftTypeName(parameters[i].SwiftTypeSpec), internalName))
@@ -3758,6 +3774,13 @@ public class EveryProtocolEmitter
     /// </summary>
     private string EmitSubscriptSetterValueSetup(SwiftWriter writer, TypeSpec valueType)
     {
+        // A value that crosses as an Objective-C object, as a property setter's does.
+        if (TryBuildObjCPointerInput(valueType, "newValue", "newValue", out var objcLines))
+        {
+            foreach (var line in objcLines)
+                writer.WriteLine(line);
+            return "&newValueRef";
+        }
         if (RequiresExplicitValuePointer(valueType))
         {
             foreach (var line in BuildValueStorageSetup("newValuePtr", GetSwiftTypeName(valueType), "newValue"))
@@ -4267,7 +4290,8 @@ public class EveryProtocolEmitter
             if (!param.IsInOut)
                 continue;
             if (IsObjCBridgeableParam(param.SwiftTypeSpec) ||
-                GetOptionalObjCBridgeableValueInnerName(param.SwiftTypeSpec) is not null)
+                GetOptionalObjCBridgeableValueInnerName(param.SwiftTypeSpec) is not null ||
+                IsObjCBridgedContainerInput(param.SwiftTypeSpec))
                 return true;
             if (ProtocolProxyEmitter.ClassifyInOutWriteBack(param.SwiftTypeSpec, _typeDatabase, _moduleName, _emissionContext)
                 == ProtocolProxyEmitter.ReceiverInOutWriteBackKind.Unsupported)
@@ -4686,8 +4710,8 @@ public class EveryProtocolEmitter
             {
                 // Bridge Swift value type → ObjC object, pass pointer to the opaque reference.
                 // C# MarshalFromSwift<IntPtr> reads the 8-byte pointer, then GetNSObject<T> resolves it.
-                argPassList.Add($"let {paramName}NS = {escapedParam} as Swift.AnyObject");
-                argPassList.Add($"var {paramName}Ref = Swift.Unmanaged.passUnretained({paramName}NS).toOpaque()");
+                argPassList.Add($"let __{paramName}Bridged = {escapedParam} as Swift.AnyObject");
+                argPassList.Add($"var {paramName}Ref = Swift.Unmanaged.passUnretained(__{paramName}Bridged).toOpaque()");
                 argRefList.Add($"&{paramName}Ref");
                 argWritebackSources.Add($"{paramName}Copy");
             }
@@ -4696,12 +4720,22 @@ public class EveryProtocolEmitter
                 // Optional ObjC-bridgeable VALUE param (URL?): pass a single optional ObjC POINTER word
                 // (nil = 0x0), borrowing (+0) the bridged NSObject — the Optional.map wrapper of the
                 // non-optional arm above so .none passes a nil (0x0) word. The C# receiver reads a bare
-                // IntPtr and +0-bridges the live NSObject. `{p}NS` (Optional<AnyObject>) holds it alive
+                // IntPtr and +0-bridges the live NSObject. `__{p}Bridged` (Optional<AnyObject>) holds it alive
                 // across the call; `{p}Ref` (Optional<UnsafeMutableRawPointer>) is the nil-optimized word.
                 // The plain `&{p}Copy` else arm would pass the multi-word Optional<URL> bytes → receiver
                 // misreads one word → layout mismatch.
-                argPassList.Add($"let {paramName}NS = {escapedParam}.map {{ $0 as Swift.AnyObject }}");
-                argPassList.Add($"var {paramName}Ref = {paramName}NS.map {{ Swift.Unmanaged.passUnretained($0).toOpaque() }}");
+                argPassList.Add($"let __{paramName}Bridged = {escapedParam}.map {{ $0 as Swift.AnyObject }}");
+                argPassList.Add($"var {paramName}Ref = __{paramName}Bridged.map {{ Swift.Unmanaged.passUnretained($0).toOpaque() }}");
+                argRefList.Add($"&{paramName}Ref");
+                argWritebackSources.Add($"{paramName}Ref");
+            }
+            else if (IsObjCBridgedContainerInput(param.SwiftTypeSpec)
+                && TryBuildObjCPointerInput(param.SwiftTypeSpec, paramName, escapedParam, out var containerLines))
+            {
+                // A container of Objective-C-bridgeable elements crosses as the collection it bridges
+                // to, lent at +0 for the call; see TryBuildObjCPointerInput. An `inout` one never gets here
+                // (MethodHasInOutParamWithoutWriteBack traps it), so the write-back source is unused.
+                argPassList.AddRange(containerLines);
                 argRefList.Add($"&{paramName}Ref");
                 argWritebackSources.Add($"{paramName}Ref");
             }
@@ -4794,7 +4828,7 @@ public class EveryProtocolEmitter
                             return Swift.Unmanaged<Swift.AnyObject>.fromOpaque(resultObjPtr).{{take}}() as! {{returnTypeNameForMetatype}}
                         """);
                 }
-                else if (GetOptionalObjCBridgeableValueInnerName(returnType) is string optBridgeableInner)
+                else if (GetOptionalObjCPointerReturnInnerName(returnType) is string optBridgeableInner)
                 {
                     // Optional scalar ObjC-bridgeable VALUE return (URL? etc.): the receiver deposited a
                     // one-word optional ObjC pointer, not a multi-word Optional<T> buffer — read it as an
@@ -4835,7 +4869,7 @@ public class EveryProtocolEmitter
                 branches, argPassList, writebackLines, argRefs,
                 hasReturn, isStringMethodReturn, isObjCBridgeableReturn, isObjCBridgeableContainerReturn,
                 returnTypeNameForMetatype,
-                hasReturn ? GetOptionalObjCBridgeableValueInnerName(returnType) : null,
+                hasReturn ? GetOptionalObjCPointerReturnInnerName(returnType) : null,
                 extensionAvailability);
         }
 
@@ -5277,21 +5311,29 @@ public class EveryProtocolEmitter
                 // URL): URL is NSURL-backed, so its first word IS the bridged pointer and the buggy
                 // `&urlCopy` path accidentally survives; Decimal's first word is mantissa data, so
                 // the buggy path reads it as an ObjC pointer and crashes — a genuine guard.
-                passLines.Add($"let {paramName}NS = {escapedParam} as Swift.AnyObject");
-                passLines.Add($"var {paramName}Ref = Swift.Unmanaged.passUnretained({paramName}NS).toOpaque()");
+                passLines.Add($"let __{paramName}Bridged = {escapedParam} as Swift.AnyObject");
+                passLines.Add($"var {paramName}Ref = Swift.Unmanaged.passUnretained(__{paramName}Bridged).toOpaque()");
                 argRefList.Add($"&{paramName}Ref");
             }
             else if (GetOptionalObjCBridgeableValueInnerName(param.SwiftTypeSpec) is not null)
             {
                 // Optional ObjC-bridgeable VALUE param (URL?) alongside a dispatchable closure: the same
                 // single optional ObjC POINTER word (nil = 0x0) as the non-closure method fan-out's
-                // optional arm, borrowing (+0) the bridged NSObject. `{p}NS` (Optional<AnyObject>) holds it
+                // optional arm, borrowing (+0) the bridged NSObject. `__{p}Bridged` (Optional<AnyObject>) holds it
                 // alive across the call; `{p}Ref` (Optional<UnsafeMutableRawPointer>) is the nil-optimized
                 // word the receiver reads as a bare IntPtr. No writeback entry (this path rejects inout).
                 // The plain `&{p}Copy` else would pass the multi-word Optional<URL> bytes → receiver misreads
                 // one word → layout mismatch.
-                passLines.Add($"let {paramName}NS = {escapedParam}.map {{ $0 as Swift.AnyObject }}");
-                passLines.Add($"var {paramName}Ref = {paramName}NS.map {{ Swift.Unmanaged.passUnretained($0).toOpaque() }}");
+                passLines.Add($"let __{paramName}Bridged = {escapedParam}.map {{ $0 as Swift.AnyObject }}");
+                passLines.Add($"var {paramName}Ref = __{paramName}Bridged.map {{ Swift.Unmanaged.passUnretained($0).toOpaque() }}");
+                argRefList.Add($"&{paramName}Ref");
+            }
+            else if (IsObjCBridgedContainerInput(param.SwiftTypeSpec)
+                && TryBuildObjCPointerInput(param.SwiftTypeSpec, paramName, escapedParam, out var containerLines))
+            {
+                // Objective-C-bridgeable container beside a dispatchable closure: the same collection
+                // pointer, lent at +0, as the non-closure fan-out; see TryBuildObjCPointerInput.
+                passLines.AddRange(containerLines);
                 argRefList.Add($"&{paramName}Ref");
             }
             else if (RequiresExplicitValuePointer(param.SwiftTypeSpec))
@@ -6578,6 +6620,85 @@ public class EveryProtocolEmitter
     }
 
     /// <summary>
+    /// The Swift metatype name of the wrapped type when <paramref name="typeSpec"/> is an optional the
+    /// C# receiver returns as one optional Objective-C pointer word (zero for nil, a +1 object
+    /// otherwise): an optional ObjC-bridgeable value (<c>URL?</c>) or an optional container that
+    /// bridges to an Objective-C collection (<c>[URL]?</c>, <c>[K: URL]?</c>, <c>Set&lt;URL&gt;?</c>);
+    /// otherwise null. Neither optional's own layout is that one word, so the generic <c>move()</c>
+    /// read would misread the buffer.
+    /// </summary>
+    private string? GetOptionalObjCPointerReturnInnerName(TypeSpec? typeSpec)
+    {
+        if (GetOptionalObjCBridgeableValueInnerName(typeSpec) is string valueInner)
+            return valueInner;
+        if (typeSpec is NamedTypeSpec { GenericParameters.Count: 1 } named
+            && CdeclParamMapper.IsOptionalObjCBridgeableContainer(typeSpec, _typeDatabase))
+            return GetSwiftTypeNameForMetatype(named.GenericParameters[0]);
+        return null;
+    }
+
+    /// <summary>
+    /// The lines that turn a reverse-dispatch INPUT (a method argument, a property's or subscript's
+    /// new value, a subscript index) into the one Objective-C pointer word the C# receiver reads,
+    /// when its type crosses as an Objective-C object; <c>false</c> for every other type. A container
+    /// whose elements bridge to Objective-C (<c>[URL]</c>, <c>Set&lt;URL&gt;</c>, <c>[K: URL]</c>,
+    /// nested or optional) crosses as the collection it bridges to, the way it crosses in every other
+    /// direction: the receiver has no reader for Swift's native storage of such a container, whose
+    /// elements are Swift values, not the object pointers it would take them for. Every one of these is
+    /// borrowed at +0: the bridged object lives in the thunk's <c>__{name}Bridged</c> local for the call, and
+    /// the receiver copies what it reads, so a call the receiver drops (its implementation collected)
+    /// leaves nothing to release. An optional is its nil-pointer-optimized word (nil = 0x0).
+    /// <paramref name="name"/> names the locals; the call passes <c>&amp;{name}Ref</c>.
+    /// </summary>
+    private bool TryBuildObjCPointerInput(TypeSpec? typeSpec, string name, string sourceExpr, out string[] lines)
+    {
+        if (IsObjCBridgeableParam(typeSpec))
+        {
+            lines = new[]
+            {
+                $"let __{name}Bridged = {sourceExpr} as Swift.AnyObject",
+                $"var {name}Ref = Swift.Unmanaged.passUnretained(__{name}Bridged).toOpaque()",
+            };
+            return true;
+        }
+        if (GetOptionalObjCBridgeableValueInnerName(typeSpec) is not null)
+        {
+            lines = new[]
+            {
+                $"let __{name}Bridged = {sourceExpr}.map {{ $0 as Swift.AnyObject }}",
+                $"var {name}Ref = __{name}Bridged.map {{ Swift.Unmanaged.passUnretained($0).toOpaque() }}",
+            };
+            return true;
+        }
+        if (typeSpec is not null && CdeclParamMapper.IsObjCBridgeableContainer(typeSpec, _typeDatabase))
+        {
+            lines = new[]
+            {
+                $"let __{name}Bridged = {sourceExpr} as Swift.AnyObject",
+                $"var {name}Ref = Swift.Unmanaged.passUnretained(__{name}Bridged).toOpaque()",
+            };
+            return true;
+        }
+        if (typeSpec is not null && CdeclParamMapper.IsOptionalObjCBridgeableContainer(typeSpec, _typeDatabase))
+        {
+            lines = new[]
+            {
+                $"let __{name}Bridged = {sourceExpr}.map {{ $0 as Swift.AnyObject }}",
+                $"var {name}Ref = __{name}Bridged.map {{ Swift.Unmanaged.passUnretained($0).toOpaque() }}",
+            };
+            return true;
+        }
+        lines = Array.Empty<string>();
+        return false;
+    }
+
+    /// <summary>Whether <paramref name="typeSpec"/> is a container, optional or not, that crosses as an Objective-C collection.</summary>
+    private bool IsObjCBridgedContainerInput(TypeSpec? typeSpec)
+        => typeSpec is not null
+           && (CdeclParamMapper.IsObjCBridgeableContainer(typeSpec, _typeDatabase)
+               || CdeclParamMapper.IsOptionalObjCBridgeableContainer(typeSpec, _typeDatabase));
+
+    /// <summary>
     /// Emits the reverse-return tail for an Optional scalar ObjC-bridgeable VALUE requirement (e.g.
     /// <c>URL?</c>), consuming a <c>resultPtr</c> the caller has already populated from the C# receiver.
     /// The receiver deposited a single optional ObjC POINTER — <c>IntPtr.Zero</c> for .none, a
@@ -6762,7 +6883,9 @@ public class EveryProtocolEmitter
         {
             // Mirror EmitSubscriptArgCopies' predicate exactly so the setup and the call-site ref
             // stay aligned for Array/String index params. See RequiresExplicitValuePointer.
-            refs.Add(RequiresExplicitValuePointer(parameters[i].SwiftTypeSpec)
+            refs.Add(TryBuildObjCPointerInput(parameters[i].SwiftTypeSpec, $"arg{i}", $"arg{i}", out _)
+                ? $"&arg{i}Ref"
+                : RequiresExplicitValuePointer(parameters[i].SwiftTypeSpec)
                 ? $"Swift.UnsafeRawPointer(arg{i}CopyPtr)"
                 : $"&arg{i}Copy");
         }
@@ -7086,7 +7209,46 @@ public class EveryProtocolEmitter
             used.Add(candidate);
             names.Add(candidate);
         }
+
+        // A thunk body introduces locals named after each parameter (BodyLocalsOf). A parameter
+        // spelled as a sibling's local would be shadowed by it and read as that local's value, so
+        // such a parameter moves aside the same way. The renamed spelling's own locals must not
+        // land on a parameter either; every rename removes one clash, so the loop ends.
+        while (true)
+        {
+            var derived = new HashSet<string>(names.SelectMany(BodyLocalsOf), StringComparer.Ordinal);
+            int clash = names.FindIndex(derived.Contains);
+            if (clash < 0)
+                break;
+            var suffix = 2;
+            string candidate;
+            do
+            {
+                candidate = $"{names[clash]}{suffix++}";
+            }
+            while (reserved.Contains(candidate) || names.Contains(candidate) || derived.Contains(candidate)
+                   || BodyLocalsOf(candidate).Any(names.Contains));
+            names[clash] = candidate;
+        }
         return names;
+    }
+
+    /// <summary>
+    /// The locals a method thunk's body derives from the parameter named <paramref name="name"/>:
+    /// its copy and pointers, its function and context pointers when it is a closure, its
+    /// Objective-C pointer word and the bridged object that word borrows from
+    /// (<see cref="TryBuildObjCPointerInput"/>). Every <c>{paramName}…</c> local the method paths
+    /// write is listed here, so <see cref="BuildSwiftParameterNames"/> can keep parameters off them.
+    /// </summary>
+    private static IEnumerable<string> BodyLocalsOf(string name)
+    {
+        yield return $"{name}Copy";
+        yield return $"{name}CopyPtr";
+        yield return $"{name}CtxPtr";
+        yield return $"{name}FnPtr";
+        yield return $"{name}Local";
+        yield return $"{name}Ref";
+        yield return $"__{name}Bridged";
     }
 
     /// <summary>

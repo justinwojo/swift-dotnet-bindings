@@ -117,6 +117,7 @@
       "NativeIntegerNarrowing",
       "NativeRegistrationOwnership",
       "NominalTypeDescriptor",
+      "ObjCDictionaryHandles",
       "OwnedArgument",
       "OwnedExistentialArgument",
       "PayloadBuffer",

@@ -29,6 +29,7 @@ internal static class HashableConformanceRegistry
         { typeof(long), "$ss5Int64VSHsMc" },   // Swift.Int64 : Hashable
         { typeof(ulong), "$ss6UInt64VSHsMc" }, // Swift.UInt64 : Hashable
         { typeof(SwiftString), "$sSSSHsMc" },  // Swift.String : Hashable
+        { typeof(string), "$sSSSHsMc" },       // Swift.String : Hashable, a managed string carrier
     };
 
     private static readonly ConcurrentDictionary<Type, ProtocolWitnessTable> _cache = new();

@@ -170,12 +170,18 @@ public func swiftUUIDMakeOptionalURLIndexOrNil(_ uuids: [String?]?) -> [NSUUID?:
     uuids.map(swiftUUIDMakeOptionalURLIndex)
 }
 
-/// A conformer C# implements: Swift asks it for a dictionary with a nil key.
+/// A conformer C# implements: Swift asks it for a dictionary with a nil key and hands it one.
 public protocol SwiftUUIDURLSource: AnyObject {
     func urls() -> [NSUUID?: URL]
+    func url(in index: [NSUUID?: URL], of uuid: String?) -> String
 }
 
 /// The URL stored under `uuid` (under `nil` when `uuid` is nil) in the dictionary the conformer returns.
 public func swiftUUIDURLFromSource(_ source: SwiftUUIDURLSource, uuid: String?) -> String? {
     source.urls()[uuid.flatMap { NSUUID(uuidString: $0) }]?.absoluteString
+}
+
+/// Hands the conformer a dictionary Swift built and returns its answer for `uuid`.
+public func swiftUUIDAskURLSource(_ source: SwiftUUIDURLSource, uuids: [String?], uuid: String?) -> String {
+    source.url(in: swiftUUIDMakeOptionalURLIndex(uuids), of: uuid)
 }

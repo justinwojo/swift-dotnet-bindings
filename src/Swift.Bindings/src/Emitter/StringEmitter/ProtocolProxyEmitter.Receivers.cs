@@ -493,7 +493,7 @@ public partial class ProtocolProxyEmitter
                     // assignment together (coupled) and short-circuit the default conversion below — mirror
                     // of the reverse-RETURN optional-bridgeable arm.
                     // Call unconditionally so the out-vars are definitely assigned; class copy-out still wins.
-                    bool objcOptApplies = TryGetReceiverOptionalObjCPointerRead(property.SwiftTypeSpec, "valuePtr", "value", out var objcOptMarshal, out var objcOptConv);
+                    bool objcOptApplies = TryGetReceiverObjCPointerRead(property.SwiftTypeSpec, "valuePtr", "value", out var objcOptMarshal, out var objcOptConv, isParameter: false);
                     bool isObjCOptRead = classCopyOut == null && objcOptApplies;
 
                     // Check if the property type needs conversion (e.g., SwiftOptional<SwiftString> → string?)
@@ -1033,9 +1033,9 @@ public partial class ProtocolProxyEmitter
                     // the call site — its default arm fails closed rather than reinterpret the value's
                     // storage bytes as the two-word SwiftOptional<IntPtr> carrier. Ordered after the
                     // class copy-out arm above, matching the property setter's precedence.
-                    else if (TryGetReceiverOptionalObjCPointerRead(
+                    else if (TryGetReceiverObjCPointerRead(
                         subscript.ReturnTypeSpec, "valuePtr", "rawValue",
-                        out var subscriptObjCOptMarshal, out var subscriptObjCOptConv))
+                        out var subscriptObjCOptMarshal, out var subscriptObjCOptConv, isParameter: false))
                     {
                         writer.WriteLine($"var rawValue = {subscriptObjCOptMarshal};");
                         writer.WriteLine($"var value = {subscriptObjCOptConv};");
@@ -2032,11 +2032,11 @@ public partial class ProtocolProxyEmitter
             // live NSURL into a URL at +1 — symmetric with the non-optional bridgeable arm. The paired Swift
             // pointer-optional read is emitted for the same optional-bridgeable-VALUE shape.
             ObjCBridgeableProjection objcVal => $"({varName} is {{}} {varName}Val ? global::Swift.Runtime.Arc.UnknownObjectRetain({objcVal.BridgeWriteExpression($"{varName}Val")}.Handle) : global::System.IntPtr.Zero)",
-            ArrayProjection arr => BuildOptionalContainerGetterConversion(arr, varName, optType,
+            ArrayProjection arr => BuildOptionalContainerGetterConversion(arr.UsesObjCContainerBridge, varName, optType,
                 GetReceiverArrayGetterConversion(arr, $"{varName}Val")),
-            DictionaryProjection dict => BuildOptionalContainerGetterConversion(dict, varName, optType,
+            DictionaryProjection dict => BuildOptionalContainerGetterConversion(dict.UsesObjCContainerBridge, varName, optType,
                 GetReceiverDictGetterConversion(dict, $"{varName}Val")),
-            SetProjection set => BuildOptionalContainerGetterConversion(set, varName, optType,
+            SetProjection set => BuildOptionalContainerGetterConversion(set.UsesObjCContainerBridge, varName, optType,
                 GetReceiverSetGetterConversion(set, $"{varName}Val")),
             // Closures have their own ABI (SwiftClosureData/function pointers) — can't wrap in SwiftOptional.
             // Passthrough; accessor methods handle closure marshalling.
@@ -2066,9 +2066,15 @@ public partial class ProtocolProxyEmitter
         };
     }
 
-    private static string? BuildOptionalContainerGetterConversion(ITypeProjection inner, string varName, string optType, string? innerConv)
+    private static string? BuildOptionalContainerGetterConversion(bool bridgesToObjC, string varName, string optType, string? innerConv)
     {
         if (innerConv == null) return null;
+        // A container that bridges to an Objective-C collection ([URL]?, [K: URL]?, Set<URL>?) is
+        // returned as one optional object pointer: the +1 collection, or zero for nil. The Swift thunk
+        // reads that word as an UnsafeRawPointer? and takes the collection's retain, as it does for a
+        // non-optional bridged container; a SwiftOptional of native storage is not what it reads.
+        if (bridgesToObjC)
+            return $"({varName} is {{}} {varName}Val ? {innerConv} : global::System.IntPtr.Zero)";
         // The optional stores a copy of the container built here, which is consumed rather than
         // left to its finalizer holding its storage and every element reference in it.
         return $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSomeConsuming({innerConv}) : SwiftOptional<{optType}>.NewNone())";
@@ -2141,22 +2147,24 @@ public partial class ProtocolProxyEmitter
             return;
         }
 
+        // One Objective-C pointer word: an optional ObjC-bridgeable VALUE (URL?, NS_TYPED_ENUM
+        // newtypes; nil = 0x0, NOT the two-word SwiftOptional<IntPtr> carrier) or a container,
+        // optional or not, that crosses as the Objective-C collection it bridges to (ahead of the
+        // dictionary arm below, which reads Swift's native storage).
+        if (TryGetReceiverObjCPointerRead(typeSpec, slotExpr, rawVarName,
+                out var objcOptMarshal, out var objcOptConv))
+        {
+            writer.WriteLine($"var {rawVarName} = {objcOptMarshal};");
+            writer.WriteLine($"var {varName} = {objcOptConv};");
+            return;
+        }
+
         // Dictionaries: the interface slot is IDictionary<K,V> (parameter form) while the projection
         // produces IReadOnlyDictionary<K,V>, so materialize eagerly.
         if (GetReceiverDictionaryConversion(rawVarName, typeSpec) is string dictConversion)
         {
             writer.WriteLine($"var {rawVarName} = {GetReceiverRawMaterialization(abiTypeName, slotExpr, typeSpec)};");
             writer.WriteLine($"var {varName} = {dictConversion};");
-            return;
-        }
-
-        // Optional ObjC-bridgeable VALUE (URL?, NS_TYPED_ENUM newtypes): one optional ObjC pointer
-        // word (nil = 0x0), NOT the two-word SwiftOptional<IntPtr> carrier.
-        if (TryGetReceiverOptionalObjCPointerRead(typeSpec, slotExpr, rawVarName,
-                out var objcOptMarshal, out var objcOptConv))
-        {
-            writer.WriteLine($"var {rawVarName} = {objcOptMarshal};");
-            writer.WriteLine($"var {varName} = {objcOptConv};");
             return;
         }
 
@@ -2246,15 +2254,35 @@ public partial class ProtocolProxyEmitter
     /// <c>Optional&lt;Int&gt;</c>: a word plus a tag byte, so copying it reads past a class slot and
     /// takes the next byte for the case, and reinterprets a bridgeable value's storage outright. The
     /// marshal type and the conversion are returned together so they can never drift. Swift-class and
-    /// ObjC-rooted Optionals keep the class copy-out path; every other shape returns false.
+    /// ObjC-rooted Optionals keep the class copy-out path. A container of Objective-C-bridgeable
+    /// elements, optional or not, also arrives as one pointer word, to the collection it bridges to,
+    /// borrowed for the call and copied by the read (<see cref="BorrowedObjCContainerRead"/>). Every
+    /// other shape returns false.
     /// </summary>
-    private bool TryGetReceiverOptionalObjCPointerRead(TypeSpec? typeSpec, string slotExpr, string varName, out string marshalExpr, out string convExpr)
+    private bool TryGetReceiverObjCPointerRead(TypeSpec? typeSpec, string slotExpr, string varName, out string marshalExpr, out string convExpr, bool isParameter = true)
     {
         marshalExpr = "";
         convExpr = "";
         if (typeSpec == null)
             return false;
-        string? bridge = ProjectReceiverType(typeSpec, isParameter: true) switch
+        // A property's or subscript's new value is read as the member's own type (isParameter:
+        // false), whose nested collections are the read-only shapes the setter takes.
+        var projection = ProjectReceiverType(typeSpec, isParameter);
+        if (BorrowedObjCContainerRead(projection, varName) is string container)
+        {
+            // A container of Objective-C-bridgeable elements: the thunk lends the collection it
+            // bridges to for the call (EveryProtocolEmitter.TryBuildObjCPointerInput), which the read copies.
+            marshalExpr = $"MarshalFromSwift<IntPtr>({slotExpr})";
+            convExpr = container;
+            return true;
+        }
+        if (projection is OptionalProjection { InnerProjection: var inner } && BorrowedObjCContainerRead(inner, varName) is string optionalContainer)
+        {
+            marshalExpr = $"MarshalFromSwift<IntPtr>({slotExpr})";
+            convExpr = $"({varName} == global::System.IntPtr.Zero ? null : {optionalContainer})";
+            return true;
+        }
+        string? bridge = projection switch
         {
             OptionalProjection { InnerProjection: ObjCBridgeableProjection bridgeable } => bridgeable.BridgeReadExpression(varName, nonNull: true),
             OptionalProjection { InnerProjection: ObjCBridgedProjection objcClass } => MarshallingHelpers.FormatObjCBridgeCall(objcClass.PublicType, varName, nonNull: true),
@@ -2266,6 +2294,21 @@ public partial class ProtocolProxyEmitter
         convExpr = $"({varName} == global::System.IntPtr.Zero ? null : {bridge})";
         return true;
     }
+
+    /// <summary>
+    /// The read of a borrowed Objective-C collection handle <paramref name="varName"/> into the
+    /// managed collection <paramref name="projection"/> names, as an element of an enclosing
+    /// collection is read; <c>null</c> when the projection is not a container that crosses as an
+    /// Objective-C collection. A dictionary reads into its concrete type, which satisfies both the
+    /// parameter's <c>IDictionary</c> and a setter's <c>IReadOnlyDictionary</c>.
+    /// </summary>
+    private static string? BorrowedObjCContainerRead(ITypeProjection? projection, string varName) => projection switch
+    {
+        ArrayProjection { UsesObjCContainerBridge: true } array => array.GetReturnElementConversion($"ObjCRuntime.Runtime.GetNSObject({varName})!"),
+        SetProjection { UsesObjCContainerBridge: true } set => set.GetReturnElementConversion(varName),
+        DictionaryProjection { UsesObjCContainerBridge: true } dictionary => dictionary.GetBorrowedObjCBridgeReadExpression(varName),
+        _ => null,
+    };
 
     /// <summary>
     /// Classifies how a receiver parameter's borrowed ABI slot must be read, from the top-level
@@ -2448,13 +2491,13 @@ public partial class ProtocolProxyEmitter
             ObjCBridgedProjection objc => $"({varName}.Case == Swift.SwiftOptionalCases.None ? null : {MarshallingHelpers.FormatObjCBridgeCall(objc.PublicType, $"{varName}.Some", nonNull: true)})",
             // Optional ObjC-bridgeable VALUE (URL?, NS_TYPED_ENUM newtypes) is a MULTI-word resilient value,
             // NOT a nil-pointer-optimized one-word slot like the ObjCBridged CLASS arm above. Its
-            // reverse-receiver read is owned by the coupled TryGetReceiverOptionalObjCPointerRead at
+            // reverse-receiver read is owned by the coupled TryGetReceiverObjCPointerRead at
             // the property-setter / method-param emission sites (read one optional ObjC pointer word, +0
             // bridge). Reaching this arm would mean a value-materialization caller skipped that interception
             // and paired a .Case/.Some read with the default two-word SwiftOptional<IntPtr> marshal — the
             // exact layout mismatch the fix removed — so fail closed at generation rather than emit it.
             ObjCBridgeableProjection => throw new InvalidOperationException(
-                "Optional<ObjC-bridgeable value> reverse-receiver read must be handled by TryGetReceiverOptionalObjCPointerRead (one-word optional ObjC pointer), not GetReceiverOptionalSetterConversion."),
+                "Optional<ObjC-bridgeable value> reverse-receiver read must be handled by TryGetReceiverObjCPointerRead (one-word optional ObjC pointer), not GetReceiverOptionalSetterConversion."),
             ArrayProjection arr => GetReceiverOptionalContainerSetterConversion(arr, varName, arr.PublicType),
             DictionaryProjection dict => GetReceiverOptionalContainerSetterConversion(dict, varName, dict.PublicType),
             SetProjection set => GetReceiverOptionalContainerSetterConversion(set, varName, set.PublicType),

@@ -821,9 +821,8 @@ public class ObjectKeyCollectionProjectionTests
     }
 
     [Theory]
-    [InlineData("Swift.String", false)]
+    [InlineData("Swift.Int", false)]
     [InlineData("Swift.Int", true)]
-    [InlineData("Swift.String", true)]
     [InlineData("Foundation.NSUUID", false)]
     [InlineData("Foundation.NSUUID", true)]
     public async Task ValueAndObjCKeyedCopy_ComparesKeysByTheirOwnEquality(string keyType, bool optional)
@@ -873,6 +872,158 @@ public class ObjectKeyCollectionProjectionTests
         const string nilKeyRestored = "?? Foundation.NSNull.Null)";
         Assert.Contains(nilKeyRestored, read);
         Assert.Contains(nilKeyRestored, inline);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StringKeyedCopy_ComparesKeysThroughSwift(bool optional)
+    {
+        // Swift's String equality is canonical equivalence ("\u00E9" == "e\u0301"); .NET's is
+        // ordinal, and normalizing is a no-op under invariant globalization. Every managed copy of a
+        // String-keyed dictionary or String set compares through Swift.
+        const string comparer = "global::Swift.Runtime.SwiftKeyComparer.StringKeys";
+        var typeDatabase = NodeDatabase(await LoadAppleDatabaseAsync());
+        TypeSpec key = optional ? Optional(new NamedTypeSpec("Swift.String")) : new NamedTypeSpec("Swift.String");
+
+        var dictionary = Assert.IsType<DictionaryProjection>(_factory.Project(
+            Dictionary(key, new NamedTypeSpec("Swift.Int")), Context(typeDatabase, new ModuleEmissionContext(), isParameter: false)));
+        Assert.Equal(comparer, DictionaryProjection.SwiftKeyComparer(dictionary.KeyProjection));
+        Assert.Contains(comparer, dictionary.GetReturnElementConversion("d"));
+        Assert.Contains(comparer, dictionary.GetOwnedReturnElementConversion("d"));
+
+        var set = Assert.IsType<SetProjection>(_factory.Project(
+            new NamedTypeSpec("Swift.Set", key), Context(typeDatabase, new ModuleEmissionContext(), isParameter: false)));
+        var setRead = set.GetReturnElementConversion("s") ?? set.GetReturnPlan("result", ReturnStrategy.IndirectResult).PInvokeExpression;
+        Assert.Contains("ToHashSet", setRead);
+        Assert.Contains(comparer, setRead);
+
+        // The copy of an NSDictionary-bridged one ([String: URL]) too.
+        if (!optional)
+        {
+            var bridged = Assert.IsType<DictionaryProjection>(_factory.Project(
+                Dictionary(key, new NamedTypeSpec("Foundation.URL")), Context(typeDatabase, new ModuleEmissionContext(), isParameter: false)));
+            Assert.True(bridged.UsesObjCContainerBridge);
+            Assert.Contains(comparer, bridged.GetReturnContainerConversion("d"));
+        }
+    }
+
+    public static TheoryData<TypeSpec> PureSwiftClassKeys => new()
+    {
+        new NamedTypeSpec("TestModule.Node"),
+        Optional(new NamedTypeSpec("TestModule.Node")),
+    };
+
+    [Theory]
+    [MemberData(nameof(PureSwiftClassKeys))]
+    public async Task SwiftClassKeyedBridgedDictionary_CrossesByTheKeysOwnObjects(TypeSpec key)
+    {
+        // [Node: URL]: the URL value sends the dictionary through NSDictionary, where each key is the
+        // Swift object itself, not an NSObject. It is built from the keys' handles without copying
+        // them (a Swift class is not NSCopying) and read entry by entry, each key through the
+        // class's own marshalling; no cast from NSObject to the class, which cannot compile.
+        var typeDatabase = NodeDatabase(await LoadAppleDatabaseAsync());
+        bool optional = key is NamedTypeSpec { Name: "Swift.Optional" };
+
+        var parameter = Assert.IsType<DictionaryProjection>(_factory.Project(
+            Dictionary(key, new NamedTypeSpec("Foundation.URL")), Context(typeDatabase, new ModuleEmissionContext())));
+        Assert.True(parameter.UsesObjCContainerBridge);
+        var writes = new[]
+        {
+            string.Join("\n", parameter.BuildObjCBridgeOwner("index", sourceIsNullable: false).Setup.Select(Render)),
+            string.Join("\n", parameter.BuildObjCBridgeOwner("index", sourceIsNullable: true).Setup.Select(Render)),
+            parameter.GetParameterElementConversion("index")!,
+            parameter.GetReverseReceiverObjCBridgeConversion("index"),
+            // A settable property of the type builds the same dictionary.
+            AccessorSetterConversionVisitor.DictSetterConversion(parameter, "index").Item1!,
+        };
+        foreach (var write in writes)
+        {
+            Assert.Contains("global::Swift.Runtime.ObjCDictionaryHandles.Create(index, k => ", write);
+            Assert.DoesNotContain("FromObjectsAndKeys", write);
+            Assert.DoesNotContain("(Foundation.NSObject)kvp.Key", write);
+            Assert.Equal(optional, write.Contains("k is null ? Foundation.NSNull.Null.Handle"));
+        }
+        // The reverse receiver hands Swift the +1 the dictionary is created at, retaining nothing more.
+        Assert.StartsWith("global::Swift.Runtime.ObjCDictionaryHandles.Create(", writes[3]);
+
+        var result = Assert.IsType<DictionaryProjection>(_factory.Project(
+            Dictionary(key, new NamedTypeSpec("Foundation.URL")), Context(typeDatabase, new ModuleEmissionContext(), isParameter: false)));
+        var reads = new[]
+        {
+            string.Join("\n", result.GetReturnPlan("result", ReturnStrategy.Direct).SetupStatements.Select(Render)),
+            result.GetReturnContainerConversion("d")!,
+            result.GetReturnElementConversion("e")!,
+            result.GetBorrowedObjCBridgeReadExpression("d"),
+        };
+        foreach (var read in reads)
+        {
+            Assert.Contains("global::Swift.Runtime.ObjCDictionaryHandles.Entries(", read);
+            Assert.Contains("SwiftMarshal.MarshalBorrowedClassFromSwift<TestModule.Node>(_entry.Key)", read);
+            Assert.DoesNotContain("(TestModule.Node)_nsKey", read);
+            Assert.Equal(optional, read.Contains("_entry.Key == Foundation.NSNull.Null.Handle ? (TestModule.Node?)null"));
+        }
+        // A returned or adopted dictionary is owned; one nested in another collection is borrowed.
+        Assert.Contains("GetINativeObject<Foundation.NSDictionary>(result, true)", reads[0]);
+        Assert.Contains("GetNSObject<Foundation.NSDictionary>(e.Handle)", reads[2]);
+    }
+
+    [Fact]
+    public async Task NestedBridgedDictionaries_NameEachLevelsLocalsApart()
+    {
+        // A bridged dictionary nested in another one's values builds and reads inside its parent's
+        // lambdas and loop, so each level names its own (a repeated name is CS0136).
+        var typeDatabase = NodeDatabase(await LoadAppleDatabaseAsync());
+        var node = new NamedTypeSpec("TestModule.Node");
+        var url = new NamedTypeSpec("Foundation.URL");
+        var nodes = Assert.IsType<DictionaryProjection>(_factory.Project(
+            Dictionary(node, Dictionary(node, url)), Context(typeDatabase, new ModuleEmissionContext())));
+        var write = nodes.GetParameterElementConversion("index")!;
+        Assert.Contains("Create(index, k2 => ", write);
+        Assert.Contains(", k => ", write);
+
+        var strings = Assert.IsType<DictionaryProjection>(_factory.Project(
+            Dictionary(new NamedTypeSpec("Swift.String"), Dictionary(new NamedTypeSpec("Swift.String"), url)),
+            Context(typeDatabase, new ModuleEmissionContext(), isParameter: false)));
+        var read = string.Join("\n", strings.GetReturnPlan("result", ReturnStrategy.Direct).SetupStatements.Select(Render));
+        Assert.Contains("foreach (var _nsKey2 in", read);
+        Assert.Contains("foreach (var _nsKey in", read);
+    }
+
+    [Fact]
+    public async Task RootedSwiftClassKeyedBridgedDictionary_CrossesByTheKeysOwnObjects()
+    {
+        // An NSObject-rooted Swift class key is an NSObject, but Foundation copies the keys of a
+        // dictionary it builds and the class is not NSCopying: the dictionary is built from the
+        // keys' handles, which it retains, as Swift's own bridge does. Read, each key goes through
+        // the class's own marshalling, which finds the key's managed peer.
+        var typeDatabase = await LoadAppleDatabaseAsync();
+        var module = new ModuleTypeDatabase("TestModule", "/fake/path");
+        var rootedName = SwiftTypeName.FromModuleQualifiedName("TestModule.RootedNode");
+        module.RegisterType(rootedName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "RootedNode"),
+            SwiftTypeName = rootedName,
+            MetadataAccessor = "$s10TestModule10RootedNodeCMa",
+            Flags = TypeRecordFlags.RequiresMemoryManagement | TypeRecordFlags.ObjCRooted,
+            Kind = TypeRecordKind.Class,
+        });
+        typeDatabase.AddModuleDatabase(module);
+        var key = new NamedTypeSpec("TestModule.RootedNode");
+
+        var parameter = Assert.IsType<DictionaryProjection>(_factory.Project(
+            Dictionary(key, new NamedTypeSpec("Foundation.URL")), Context(typeDatabase, new ModuleEmissionContext())));
+        Assert.IsType<ObjCRootedClassProjection>(parameter.KeyProjection);
+        var write = string.Join("\n", parameter.BuildObjCBridgeOwner("index", sourceIsNullable: false).Setup.Select(Render));
+        Assert.Contains("global::Swift.Runtime.ObjCDictionaryHandles.Create(index, k => ", write);
+        Assert.DoesNotContain("FromObjectsAndKeys", write);
+
+        var result = Assert.IsType<DictionaryProjection>(_factory.Project(
+            Dictionary(key, new NamedTypeSpec("Foundation.URL")), Context(typeDatabase, new ModuleEmissionContext(), isParameter: false)));
+        var read = result.GetReturnContainerConversion("d")!;
+        Assert.Contains("ObjCDictionaryHandles.Entries", read);
+        Assert.Contains("SwiftMarshal.MarshalBorrowedClassFromSwift<TestModule.RootedNode>(_entry.Key)", read);
+        Assert.DoesNotContain("(TestModule.RootedNode)_nsKey", read);
     }
 
     private static string AccessorSetterConversion(ITypeProjection projection, string valueExpr)
