@@ -1890,7 +1890,14 @@ namespace BindingsGeneration
                             csWriter.WriteLine($"_handle.DangerousAddRef(ref {SuccessName});");
                         }
                     }
-                    // ObjC-rooted: no SafeHandle — lifecycle managed by NSObject via ARC
+                    // ObjC-rooted: no SafeHandle to lease. Self is read as the bare object pointer,
+                    // which is the wrapper's last use, so under a precise collector its finalizer
+                    // could release the object mid-call: hold it until the call returns, as a
+                    // borrowed argument is held. (Async: the holder carries `this`.)
+                    else if (!_env.MethodDecl.IsAsync)
+                    {
+                        _borrowedObjectArgumentNames.Add("this");
+                    }
                 }
                 else if (_env.ParentDecl is EnumDecl)
                 {

@@ -1063,9 +1063,12 @@ public static class ExistentialBypassEmitter
             ? $"{env.PInvokeHelperContext.HelperClassName}.{wrapperSymbol}"
             : wrapperSymbol;
 
+        // The receiver is read off this wrapper's own handle, which is then its last use: the
+        // wrapper is held until the call has returned.
         if (!isExistentialReturn)
         {
             csWriter.WriteLine($"{wrapperCall}({callArgs});");
+            csWriter.WriteLine(LiveHandleExpressions.ArgumentKeepAlive("this"));
         }
         else
         {
@@ -1086,6 +1089,7 @@ public static class ExistentialBypassEmitter
             csWriter.WriteLine("{");
             csWriter.Indent++;
             csWriter.WriteLine("NativeMemory.Free(__resultBuf);");
+            csWriter.WriteLine(LiveHandleExpressions.ArgumentKeepAlive("this"));
             csWriter.Indent--;
             csWriter.WriteLine("}");
         }

@@ -462,3 +462,26 @@ public protocol URLIndexSource: AnyObject {
 public func urlIndexSourceDescribe(_ source: URLIndexSource) -> String {
     urlIndexDescribe(source.makeIndex())
 }
+
+// MARK: - Dates valued by URLs
+//
+// A `Date` in a dictionary keyed by URLs crosses as the `NSDate` Swift bridges it to, so the
+// instant survives both ways.
+
+/// `[a: 1000 s, b: -2.5 s]` after the reference date.
+public func urlDateIndex() -> [URL: Date] {
+    [countsURL("a"): Date(timeIntervalSinceReferenceDate: 1000), countsURL("b"): Date(timeIntervalSinceReferenceDate: -2.5)]
+}
+
+/// `dates` as `url=seconds` (since the reference date) sorted and joined by `;`.
+public func urlDateIndexDescribe(_ dates: [URL: Date]) -> String {
+    dates.map { "\($0.key.lastPathComponent)=\($0.value.timeIntervalSinceReferenceDate)" }.sorted().joined(separator: ";")
+}
+
+/// Dates keyed by URLs, which C# sets and Swift reads back.
+public final class URLDateHolder {
+    public var dates: [URL: Date] = [:]
+    public init() {}
+    /// `dates`, described as `urlDateIndexDescribe` does.
+    public func describe() -> String { urlDateIndexDescribe(dates) }
+}

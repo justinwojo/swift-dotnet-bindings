@@ -1550,6 +1550,10 @@ public static class ForeignTypeExtensionEmitter
 
         nativeArgs.Add(LiveHandleExpressions.ObjCArgument(receiverScope.ReceiverName, receiverScope.ReceiverName));
 
+        // The receiver and every object argument reach Swift as bare pointers read off wrappers the
+        // caller owns; each is held until the call returns or throws.
+        var heldOwners = new List<string> { receiverScope.ReceiverName };
+
         // Add method parameters
         foreach (var (label, typeSpec, swiftType, _) in member.Parameters)
         {
@@ -1575,6 +1579,7 @@ public static class ForeignTypeExtensionEmitter
                     nativeArgs.Add(LiveHandleExpressions.SwiftObjectArgument(paramName, paramName));
                 else
                     nativeArgs.Add(LiveHandleExpressions.ObjCArgument(paramName, paramName));
+                heldOwners.Add(paramName);
             }
             else
             {
@@ -1589,8 +1594,9 @@ public static class ForeignTypeExtensionEmitter
             ExtensionMarshallingHelper.TryGetSimpleEnumLowering(member.ReturnTypeSpec, typeDatabase, out _, out _, out _);
         // The wrapper hands every class result back at +1 (FormatOpaqueClassReturn), so the reader
         // adopts an Objective-C result rather than retaining it again.
-        EmitReturnValueMarshalling(csWriter, member.ReturnCategory, nativeCall, csharpType, bodyScope, returnNeedsEnumCast,
-            objCResultOwned: true);
+        LiveHandleExpressions.WriteHeldRegion(csWriter, heldOwners, () =>
+            EmitReturnValueMarshalling(csWriter, member.ReturnCategory, nativeCall, csharpType, bodyScope, returnNeedsEnumCast,
+                objCResultOwned: true));
     }
 
     /// <summary>

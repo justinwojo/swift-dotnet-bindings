@@ -2010,9 +2010,13 @@ public partial class ProtocolProxyEmitter
             writer.WriteLine($"global::Swift.Runtime.ClosureHandle {handleName} = default;");
         }
 
+        // One dispatch emitter classifies the arguments for both the hold (declared here, with
+        // the other cleanups) and the marshalling below, so every argument passed as the bare
+        // pointer of an object the caller owns is held until the call has returned.
+        var dispatchEmitter = new WitnessDispatchEmitter(_typeDatabase, _logger, _moduleName, _emissionContext);
         var pinHandles = EmitPinHandleDeclarations(
             writer, argNames.ToList(), parameters.Select(p => (TypeSpec?)p.SwiftTypeSpec).ToList(),
-            bodyScope, nonClosureIndexes);
+            bodyScope, nonClosureIndexes, dispatchEmitter: dispatchEmitter);
 
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
@@ -2038,7 +2042,7 @@ public partial class ProtocolProxyEmitter
 
         EmitMethodParameterMarshalling(
             writer, argNames.ToList(), parameters.Select(p => (TypeSpec?)p.SwiftTypeSpec).ToList(),
-            bodyScope, new WitnessDispatchEmitter(_typeDatabase, _logger, _moduleName, _emissionContext),
+            bodyScope, dispatchEmitter,
             nonClosureIndexes);
 
         var resultPtrName = bodyScope.Mint("resultPtr");
@@ -2892,10 +2896,7 @@ public partial class ProtocolProxyEmitter
                 writer.WriteLine($"{handleName} = GCHandle.Alloc({bytesName}, GCHandleType.Pinned);");
                 writer.WriteLine($"var {sliceName} = new Utf8Slice {{ Ptr = {handleName}.AddrOfPinnedObject(), Len = (nint){bytesName}.Length }};");
             }
-            else if (dispatchEmitter != null &&
-                     (dispatchEmitter.UsesHandleAccessor(paramSwiftTypeSpecs[i]) ||
-                      dispatchEmitter.IsSwiftClassType(paramSwiftTypeSpecs[i]) ||
-                      dispatchEmitter.IsIndirectStructType(paramSwiftTypeSpecs[i])))
+            else if (ReadsObjectPointer(dispatchEmitter, paramSwiftTypeSpecs[i]))
             {
                 // ObjC-backed classes use .Handle (ObjC/CF pointer), pure Swift classes use .Payload.
                 // The .Handle set is the full union of ObjC-rooted (NSObject subclass), ObjC-bridged
@@ -2972,6 +2973,18 @@ public partial class ProtocolProxyEmitter
     }
 
     /// <summary>
+    /// True when <see cref="EmitMethodParameterMarshalling"/> passes a (non-string, non-inout)
+    /// dispatched argument as the pointer read off its wrapper (<c>.Handle</c> or the payload).
+    /// <see cref="EmitPinHandleDeclarations"/> holds each such argument until the call returns.
+    /// </summary>
+    private static bool ReadsObjectPointer(
+        [global::System.Diagnostics.CodeAnalysis.NotNullWhen(true)] WitnessDispatchEmitter? dispatchEmitter, TypeSpec? swiftType)
+        => dispatchEmitter != null
+           && (dispatchEmitter.UsesHandleAccessor(swiftType)
+               || dispatchEmitter.IsSwiftClassType(swiftType)
+               || dispatchEmitter.IsIndirectStructType(swiftType));
+
+    /// <summary>
     /// Emits GCHandle variable declarations initialized to default before try blocks.
     /// This ensures handles can be safely checked with IsAllocated in finally blocks
     /// even if an exception occurs during allocation of subsequent handles.
@@ -3016,6 +3029,13 @@ public partial class ProtocolProxyEmitter
                 var handleName = bodyScope.Mint($"arg{i}Handle");
                 writer.WriteLine($"var {handleName} = default(GCHandle);");
                 cleanupStatements.Add($"if ({handleName}.IsAllocated) {handleName}.Free();");
+            }
+            else if (ReadsObjectPointer(dispatchEmitter, paramSwiftTypeSpecs[i]))
+            {
+                // EmitMethodParameterMarshalling passes this argument as the bare pointer of an object
+                // the caller owns; reading it is the wrapper's last use, so it is held until the
+                // dispatch call has returned or thrown.
+                cleanupStatements.Add(LiveHandleExpressions.ArgumentKeepAlive(argNames[i]));
             }
         }
         return cleanupStatements;

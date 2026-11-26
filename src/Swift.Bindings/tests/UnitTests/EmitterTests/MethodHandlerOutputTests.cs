@@ -37,6 +37,33 @@ public class MethodHandlerOutputTests
         Assert.Contains("return _tcs.Task;", csOutput);
     }
 
+    /// <summary>
+    /// An enum argument crosses as the pointer to the payload its wrapper owns. Reading it is the
+    /// wrapper's last use, so the argument is held until the call has returned.
+    /// </summary>
+    [Theory]
+    [InlineData(MethodType.Static)]
+    [InlineData(MethodType.Instance)]
+    public void Emit_EnumArgument_IsHeldUntilTheCallReturns(MethodType methodType)
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethodDecl(
+            name: "describe",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: new NamedTypeSpec("Swift.Int"),
+            isAsync: false,
+            throws: false,
+            methodType: methodType);
+        method.CSSignature.Add(CreateArgument("variant", new NamedTypeSpec("TestModule.ColorFormatDenominator"), moduleDecl));
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        BorrowedOwnerAssert.HeldAfter(csOutput, "variant.Payload.DangerousGetHandle()", "variant");
+    }
+
     [Fact]
     public void Emit_ActorAsyncMethod_ReturnsTaskWithAsyncSuffix()
     {

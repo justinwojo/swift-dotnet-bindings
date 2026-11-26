@@ -1004,6 +1004,33 @@ public class ExistentialBypassEmitterTests
         Assert.Equal(expectMainActor, lines[..declaration].Any(l => l.Trim() == "@MainActor"));
     }
 
+    /// <summary>
+    /// The bypass reads the receiver off this wrapper's own handle, which is then the wrapper's last
+    /// use: it is held until the wrapper call has returned.
+    /// </summary>
+    [Fact]
+    public void TryEmitMethodBypass_InstanceMethod_HoldsTheReceiverUntilTheCallReturns()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl, typeDatabase);
+        var existentialArg = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Equatable") });
+        var method = CreateInstanceMethodDecl(
+            "take",
+            parentDecl,
+            moduleDecl,
+            new TupleTypeSpec(new List<TypeSpec>()),
+            parameters: new List<ArgumentDecl>
+            {
+                CreateArgument("options", new NamedTypeSpec("Swift.Array", existentialArg), moduleDecl, hasDefault: true)
+            });
+
+        var (emitted, csOutput, _) = EmitMethodBypass(method, typeDatabase);
+
+        Assert.True(emitted);
+        BorrowedOwnerAssert.HeldAfter(csOutput, "SBSW_", "this", from: " Take(");
+    }
+
     [Theory]
     [InlineData(true, false, false, true)]
     [InlineData(false, true, false, true)]

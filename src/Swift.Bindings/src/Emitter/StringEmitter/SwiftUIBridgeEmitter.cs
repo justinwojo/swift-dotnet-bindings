@@ -2050,17 +2050,13 @@ public static partial class SwiftUIBridgeEmitter
             else if (param.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
             {
                 var handleExpr = param.IsObjCBridgeable ? "newValue.Handle" : "newValue.Payload.DangerousGetHandle()";
-                sb.AppendLine($"        public void Update{pascalName}({factoryType} newValue) =>");
-                sb.AppendLine($"            {info.Identifier}BridgeNativeMethods.Update{pascalName}(Handle, {handleExpr});");
-                sb.AppendLine();
+                EmitHeldUpdate(sb, info, pascalName, factoryType, handleExpr);
             }
             else if (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct)
             {
                 var innerBridgeable = param.InnerParameter?.IsObjCBridgeable == true;
                 var handleExpr = innerBridgeable ? "newValue?.Handle ?? IntPtr.Zero" : "newValue?.Payload.DangerousGetHandle() ?? IntPtr.Zero";
-                sb.AppendLine($"        public void Update{pascalName}({factoryType} newValue) =>");
-                sb.AppendLine($"            {info.Identifier}BridgeNativeMethods.Update{pascalName}(Handle, {handleExpr});");
-                sb.AppendLine();
+                EmitHeldUpdate(sb, info, pascalName, factoryType, handleExpr);
             }
             else if (param.Kind == BridgeParameterKind.OptionalWrapped)
             {
@@ -3163,6 +3159,7 @@ public static partial class SwiftUIBridgeEmitter
             // Simple case: no closures, no strings, no arrays
             var nativeArgs = BuildSimpleNativeCallArgs(bridgeParams);
             sb.AppendLine($"            var {handleLocal} = {info.Identifier}BridgeNativeMethods.Create({string.Join(", ", nativeArgs)});");
+            AppendBorrowedArgumentKeepAlives(sb, "            ", bridgeParams);
             sb.AppendLine($"            if ({handleLocal} == IntPtr.Zero)");
             sb.AppendLine($"                throw new InvalidOperationException(\"Failed to create {info.ViewName} session.\");");
             sb.AppendLine($"            var {sessionLocal} = new {info.Identifier}Session({handleLocal});");
@@ -3266,6 +3263,7 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine($"{indent}{{");
             var innerIndent = indent + "    ";
             sb.AppendLine($"{innerIndent}var {handleLocal} = {info.Identifier}BridgeNativeMethods.Create({string.Join(", ", nativeArgs)});");
+            AppendBorrowedArgumentKeepAlives(sb, innerIndent, bridgeParams);
             sb.AppendLine($"{innerIndent}if ({handleLocal} == IntPtr.Zero)");
             sb.AppendLine($"{innerIndent}    throw new InvalidOperationException(\"Failed to create {info.ViewName} session.\");");
             sb.AppendLine($"{innerIndent}var {sessionLocal} = new {info.Identifier}Session({handleLocal});");
@@ -3281,6 +3279,7 @@ public static partial class SwiftUIBridgeEmitter
         else
         {
             sb.AppendLine($"{indent}var {handleLocal} = {info.Identifier}BridgeNativeMethods.Create({string.Join(", ", nativeArgs)});");
+            AppendBorrowedArgumentKeepAlives(sb, indent, bridgeParams);
             sb.AppendLine($"{indent}if ({handleLocal} == IntPtr.Zero)");
             sb.AppendLine($"{indent}    throw new InvalidOperationException(\"Failed to create {info.ViewName} session.\");");
             sb.AppendLine($"{indent}var {sessionLocal} = new {info.Identifier}Session({handleLocal});");
@@ -3291,6 +3290,42 @@ public static partial class SwiftUIBridgeEmitter
             }
             sb.AppendLine($"{indent}{sessionLocal}.SetLifecycleCallbacks(onAppear, onDisappear);");
             sb.AppendLine($"{indent}return {sessionLocal};");
+        }
+    }
+
+    /// <summary>
+    /// An <c>Update{X}</c> member whose argument is an object the caller owns, passed as its bare
+    /// pointer (<paramref name="handleExpression"/>). Reading the pointer is the wrapper's last use,
+    /// so under a precise collector its finalizer could release the object while Swift still reads
+    /// it; the wrapper is held until the call returns.
+    /// </summary>
+    private static void EmitHeldUpdate(
+        StringBuilder sb, ViewBridgeInfo info, string pascalName, string factoryType, string handleExpression)
+    {
+        sb.AppendLine($"        public void Update{pascalName}({factoryType} newValue)");
+        sb.AppendLine("        {");
+        sb.AppendLine($"            {info.Identifier}BridgeNativeMethods.Update{pascalName}(Handle, {handleExpression});");
+        sb.AppendLine($"            {LiveHandleExpressions.ArgumentKeepAlive("newValue")}");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+    }
+
+    /// <summary>
+    /// Holds each Create argument <see cref="BuildSimpleNativeCallArgs"/> passes as the bare pointer
+    /// of an object the caller owns (a bound class or struct, or an Optional of one) until the call
+    /// has returned, as <see cref="EmitHeldUpdate"/> does for an update.
+    /// </summary>
+    private static void AppendBorrowedArgumentKeepAlives(StringBuilder sb, string indent, List<BridgeParameter> bridgeParams)
+    {
+        foreach (var param in bridgeParams)
+        {
+            // A Codable binding crosses as JSON bytes, not a pointer (BuildSimpleNativeCallArgs).
+            if (param.IsBindingCodableStruct)
+                continue;
+            if (param.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct
+                || (param.Kind == BridgeParameterKind.OptionalWrapped
+                    && param.InnerParameter?.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct))
+                sb.AppendLine($"{indent}{LiveHandleExpressions.ArgumentKeepAlive(param.CSharpName)}");
         }
     }
 
@@ -4135,6 +4170,8 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine("                    {");
             sb.AppendLine("                        var ptr = result.Payload.DangerousGetHandle();");
             sb.AppendLine("                        global::Swift.Runtime.Arc.Retain(ptr);");
+            // The retain is the hand-over: the wrapper must still own the object when it runs.
+            sb.AppendLine($"                        {LiveHandleExpressions.ArgumentKeepAlive("result")}");
             sb.AppendLine("                        return ptr;");
             sb.AppendLine("                    }");
             sb.AppendLine("                    return IntPtr.Zero;");

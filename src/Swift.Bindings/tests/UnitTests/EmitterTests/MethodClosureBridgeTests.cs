@@ -626,6 +626,25 @@ public class MethodClosureBridgeTests
         AssertHeldAfterTheCall(cs, "presenter");
     }
 
+    /// <summary>
+    /// The bridge reads its receiver off this wrapper's own handle, which is then the wrapper's
+    /// last use: it is held until the call has returned, like the object arguments.
+    /// </summary>
+    [Fact]
+    public void TryEmit_InstanceMethod_HoldsTheReceiverUntilTheCallReturns()
+    {
+        var (method, typeDatabase, env) = CreateMethodWithObjCParam();
+        var csOutput = new StringWriter();
+
+        MethodClosureBridge.TryEmit(new CSharpWriter(csOutput), new SwiftWriter(new StringWriter()), env, env.ParentDecl as TypeDecl);
+
+        var cs = csOutput.ToString();
+        var read = cs.IndexOf("ArgumentHandle(presenter, ", System.StringComparison.Ordinal);
+        Assert.True(read >= 0, cs);
+        var call = cs.IndexOf(");", read, System.StringComparison.Ordinal);
+        Assert.True(cs.IndexOf("GC.KeepAlive(this);", read, System.StringComparison.Ordinal) > call, cs);
+    }
+
     private static void AssertHeldAfterTheCall(string cs, string argument)
     {
         var read = cs.IndexOf($"ArgumentHandle({argument}, ", System.StringComparison.Ordinal);

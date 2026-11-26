@@ -217,10 +217,14 @@ public static partial class ClosureEmitter
         }
         else if (isObjCBridged)
         {
-            marshalBlock = """
-                // ObjC-bridged type: write the handle pointer to the result buffer.
-                // The Swift struct wraps an ObjC reference — the handle IS the ABI representation.
-                *(IntPtr*)indirectResult = result.Handle;
+            // The adapter moves the reference out of the buffer, taking a +1, exactly as for a
+            // Swift class: hand it over retained while the wrapper is still alive, the same
+            // hand-over the cdecl callback's buffer write uses (BuildCallbackIndirectReturnStatement).
+            var handOver = BuildBridgedPeerHandOver("result", "__objcHandle", isOptional: false);
+            marshalBlock = $$"""
+                // ObjC-bridged class: hand the object over at +1; the adapter takes ownership.
+                {{handOver}}
+                *(IntPtr*)indirectResult = __objcHandle;
                 """;
         }
         else if (SimpleEnumCrossing.GetOptionalCodecMap(closureTypeSpec.ReturnType, closureHandler.TypeDatabase) is not null)

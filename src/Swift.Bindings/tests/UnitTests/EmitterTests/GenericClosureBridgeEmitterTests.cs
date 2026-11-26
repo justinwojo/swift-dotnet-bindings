@@ -147,6 +147,54 @@ public class GenericClosureBridgeEmitterTests
 
     #region TryEmit: eligible method emits bridge
 
+    /// <summary>
+    /// An instance bridge reads its receiver off this wrapper's own handle, which is then the
+    /// wrapper's last use: it is held in the finally that frees the closure's handle.
+    /// </summary>
+    [Fact]
+    public void TryEmit_InstanceMethod_HoldsTheReceiverUntilTheCallReturns()
+    {
+        var csOutput = new StringWriter();
+        var moduleDecl = CreateModuleDecl();
+        var typeDatabase = CreateTypeDatabase();
+        var parentDecl = CreateClassDecl("Database");
+        var closureSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("TestModule.Database"), new NamedTypeSpec("τ_0_0"))
+        {
+            Throws = true
+        };
+        var method = new MethodDecl
+        {
+            Name = "read",
+            MangledName = "$s11RecordStore8Database4readyyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = true,
+            IsAsync = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", new NamedTypeSpec("τ_0_0"), moduleDecl),
+                CreateArg("block", closureSpec, moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_0_0", "T", new(), new())
+            },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            IsSynthesizedAccessor = false
+        };
+
+        Assert.True(GenericClosureBridgeEmitter.TryEmit(
+            new CSharpWriter(csOutput), new SwiftWriter(new StringWriter()),
+            new MethodEnvironment(method, typeDatabase), parentDecl, new ModuleEmissionContext()));
+
+        var cs = csOutput.ToString();
+        BorrowedOwnerAssert.HeldAfter(cs, "GCHandle.ToIntPtr(", "this");
+        var hold = cs.IndexOf("GC.KeepAlive(this);", StringComparison.Ordinal);
+        Assert.True(cs.LastIndexOf("finally", hold, StringComparison.Ordinal) > cs.IndexOf("GCHandle.ToIntPtr(", StringComparison.Ordinal), cs);
+    }
+
     [Fact]
     public void TryEmit_EligibleGenericClosure_EmitsBridge()
     {

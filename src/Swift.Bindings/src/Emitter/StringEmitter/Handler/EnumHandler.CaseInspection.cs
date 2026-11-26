@@ -250,6 +250,16 @@ namespace BindingsGeneration
                     return;
                 }
 
+                // The read mirror of the case factory's refusal: the payload bridge would hand back an
+                // Objective-C collection holding an element C# cannot read.
+                if (BridgedContainerDisagrees(typeSpec, typeDatabase, enumDecl, isParameter: false, out var bridgeDetail))
+                {
+                    _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' carries '{typeSpec}', a collection Swift bridges to Objective-C that C# cannot bridge to match. Skipping TryGet method.");
+                    ReportCollector.RecordMemberSkipped(
+                        BindingItemKind.Method, $"TryGet{capitalizedName}", enumDecl, SkipReason.UnsupportedSignature, bridgeDetail);
+                    return;
+                }
+
                 if (TryClassifyBridgedPayload(typeSpec, typeDatabase, emissionCtx, enumDecl.ModuleDecl?.Name, out var bridgedPayload))
                 {
                     if (!TryEmitBridgedPayloadTryGet(csWriter, swiftWriter, enumDecl, caseDecl, typeDatabase, capitalizedName, tagPropertyName, bridgedPayload, emissionCtx))
@@ -460,6 +470,16 @@ namespace BindingsGeneration
             // the module owning its protocol (see EmitTryGetMethod).
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase, conformanceGraph: null,
                 currentModuleName: enumDecl.ModuleDecl?.Name);
+
+            // The read mirror of the case factory's refusal, ahead of the bridged-value refusal below
+            // so the reader reports the same reason as the factory.
+            if (BridgedContainerDisagrees(tupleSpec, typeDatabase, enumDecl, isParameter: false, out var bridgeDetail))
+            {
+                _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' carries a collection Swift bridges to Objective-C that C# cannot bridge to match. Skipping TryGet method.");
+                ReportCollector.RecordMemberSkipped(
+                    BindingItemKind.Method, $"TryGet{capitalizedName}", enumDecl, SkipReason.UnsupportedSignature, bridgeDetail);
+                return;
+            }
 
             // Validate tuple element count (max 7 per C# ValueTuple limit)
             if (tupleSpec.Elements.Count > TupleHandler.MaxSupportedTupleElements)

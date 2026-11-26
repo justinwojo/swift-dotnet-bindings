@@ -270,8 +270,8 @@ public static class SubclassClosedParentTrampolineEmitter
         });
 
         // --- C# public extension method ---
-        // No AddRef/Release: the live `self` reference keeps the handle valid across the
-        // synchronous P/Invoke (matches the sync CSM extension convention).
+        // Reading the handle is `self`'s last use, so under a precise collector its finalizer could
+        // release the object while Swift runs: `self` is held until the call returns.
         csWriter.WriteLine();
         // Doc first: after an attribute it documents nothing (CS1587).
         csWriter.WriteLine($"/// <summary>Inherited from {baseDecl.Name}&lt;…&gt;.</summary>");
@@ -286,7 +286,10 @@ public static class SubclassClosedParentTrampolineEmitter
         AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(
             csWriter, mergedAvailability, $"{leafDecl.Name}.{csMethodName}");
         var call = $"{cdeclSymbol}({LiveHandleExpressions.SwiftObject("self")})";
-        csWriter.WriteLine(isVoid ? $"{call};" : $"return {call};");
+        csWriter.WriteLine(isVoid ? $"{call};" : $"var __result = {call};");
+        csWriter.WriteLine(LiveHandleExpressions.ArgumentKeepAlive("self"));
+        if (!isVoid)
+            csWriter.WriteLine("return __result;");
         csWriter.Indent--;
         csWriter.WriteLine("}");
     }

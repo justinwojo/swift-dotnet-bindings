@@ -2408,6 +2408,27 @@ public class ClosureEmitterDirectTests
         Assert.DoesNotContain("stackalloc", result);
     }
 
+    /// <summary>
+    /// The copy reads the payload the argument's wrapper owns, so the wrapper is held until the
+    /// value-witness copy has finished; reading the pointer is otherwise its last use.
+    /// </summary>
+    [Fact]
+    public void EmitCSharpInvokeThunkHelper_NonFrozenStructArg_HoldsTheArgumentUntilItIsCopied()
+    {
+        var typeDatabase = CreateTypeDatabaseWithStructArgs();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("TestModule.ResilientConfig"),
+            new NamedTypeSpec("Swift.Int32"));
+
+        var output = new StringWriter();
+        ClosureEmitter.EmitCSharpInvokeThunkHelper(
+            new CSharpWriter(output), closureTypeSpec, closureHandler,
+            "_InvokeClosureThunk_ABCD1234", "SBW_Test_InvCR", "TestLib");
+
+        BorrowedOwnerAssert.HeldAfter(output.ToString(), "_arg0.Payload.DangerousGetHandle()", "_arg0");
+    }
+
     [Fact]
     public void CanUseInvokeThunk_StringArg_PrimitiveReturn_ReturnsTrue()
     {

@@ -932,11 +932,15 @@ public static class GenericClosureBridgeEmitter
         callArgs.Add($"s_{callbackName}");
         callArgs.Add($"GCHandle.ToIntPtr({gcHandleName})");
         callArgs.Add(resultBufName);
-        AddNonClosurePInvokeCallArgs(callArgs, methodDecl, env.TypeDatabase, bodyScope);
+        var heldOwners = AddNonClosurePInvokeCallArgs(callArgs, methodDecl, env.TypeDatabase, bodyScope);
         // Receiver passed as a regular IntPtr argument (regular GPR), matching the free-function
         // Swift wrapper — see AddNonClosureAndSelfParams for the self-register ABI rationale.
+        // It is read off this wrapper's own handle, so the wrapper is held like an argument.
         if (methodDecl.MethodType == MethodType.Instance)
+        {
             callArgs.Add($"(IntPtr)({selfExpr})");
+            heldOwners.Add("this");
+        }
         if (methodDecl.Throws)
             callArgs.Add($"out var {swiftErrorName}");
 
@@ -971,7 +975,7 @@ public static class GenericClosureBridgeEmitter
 
         csWriter.Indent--;
         csWriter.WriteLine("}");
-        csWriter.WriteLine($"finally {{ if ({gcHandleName}.IsAllocated) {gcHandleName}.Free(); }}");
+        EmitFreeHandleAndHoldOwners(csWriter, gcHandleName, heldOwners);
 
         csWriter.Indent--;
         csWriter.WriteLine("}");
@@ -1074,11 +1078,15 @@ public static class GenericClosureBridgeEmitter
         var callArgs = new List<string>();
         callArgs.Add($"s_{callbackName}");
         callArgs.Add($"GCHandle.ToIntPtr({gcHandleName})");
-        AddNonClosurePInvokeCallArgs(callArgs, methodDecl, env.TypeDatabase, bodyScope);
+        var heldOwners = AddNonClosurePInvokeCallArgs(callArgs, methodDecl, env.TypeDatabase, bodyScope);
         // Receiver passed as a regular IntPtr argument (regular GPR), matching the free-function
         // Swift wrapper — see AddNonClosureAndSelfParams for the self-register ABI rationale.
+        // It is read off this wrapper's own handle, so the wrapper is held like an argument.
         if (methodDecl.MethodType == MethodType.Instance)
+        {
             callArgs.Add($"(IntPtr)({selfExpr})");
+            heldOwners.Add("this");
+        }
         if (methodDecl.Throws)
             callArgs.Add($"out var {swiftErrorName}");
 
@@ -1092,7 +1100,7 @@ public static class GenericClosureBridgeEmitter
 
         csWriter.Indent--;
         csWriter.WriteLine("}");
-        csWriter.WriteLine($"finally {{ if ({gcHandleName}.IsAllocated) {gcHandleName}.Free(); }}");
+        EmitFreeHandleAndHoldOwners(csWriter, gcHandleName, heldOwners);
 
         csWriter.Indent--;
         csWriter.WriteLine("}");
@@ -1157,12 +1165,13 @@ public static class GenericClosureBridgeEmitter
     /// Adds non-closure arguments to the P/Invoke call args list with proper marshalling.
     /// Skips closure arguments (both bare ClosureTypeSpec and Optional-wrapped closures).
     /// </summary>
-    private static void AddNonClosurePInvokeCallArgs(
+    private static List<string> AddNonClosurePInvokeCallArgs(
         List<string> callArgs,
         MethodDecl methodDecl,
         ITypeDatabase typeDatabase,
         SyntheticNameScope bodyScope)
     {
+        var heldOwners = new List<string>();
         foreach (var arg in methodDecl.CSSignature.Skip(1))
         {
             // Skip bare closure args
@@ -1186,15 +1195,34 @@ public static class GenericClosureBridgeEmitter
             {
                 case MethodClosureBridge.ParamAbiCategory.ObjCHandle:
                     callArgs.Add($"{csName}.Handle");
+                    heldOwners.Add(csName);
                     break;
                 case MethodClosureBridge.ParamAbiCategory.PayloadHandle:
                     callArgs.Add($"{csName}.Payload.DangerousGetHandle()");
+                    heldOwners.Add(csName);
                     break;
                 default:
                     callArgs.Add(csName);
                     break;
             }
         }
+        return heldOwners;
+    }
+
+    /// <summary>
+    /// The finally of the call region: frees the closure's GCHandle, and holds every owner whose
+    /// pointer the call borrowed (<paramref name="heldOwners"/>) until here, since reading a
+    /// pointer is its owner's last use.
+    /// </summary>
+    private static void EmitFreeHandleAndHoldOwners(CSharpWriter csWriter, string gcHandleName, IEnumerable<string> heldOwners)
+    {
+        csWriter.WriteLine("finally");
+        csWriter.WriteLine("{");
+        csWriter.Indent++;
+        csWriter.WriteLine($"if ({gcHandleName}.IsAllocated) {gcHandleName}.Free();");
+        LiveHandleExpressions.WriteArgumentKeepAlives(csWriter, heldOwners);
+        csWriter.Indent--;
+        csWriter.WriteLine("}");
     }
 
     /// <summary>

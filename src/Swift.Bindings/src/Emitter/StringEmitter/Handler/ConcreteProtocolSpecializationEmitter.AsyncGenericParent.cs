@@ -1267,6 +1267,10 @@ public static partial class ConcreteProtocolSpecializationEmitter
         }
 
         csWriter.WriteLine($"{cdeclSymbol}({string.Join(", ", callArgs)});");
+        // An unleased receiver lent the synchronous call its bare pointer (the wrapper retains
+        // what its Task captures before returning): hold it until the call has returned.
+        if (!leaseSelf)
+            csWriter.WriteLine(LiveHandleExpressions.ArgumentKeepAlive("self"));
 
         // Close `fixed` blocks in reverse order.
         for (int i = 0; i < utf8SliceLocals.Count; i++)

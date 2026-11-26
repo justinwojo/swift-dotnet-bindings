@@ -1791,6 +1791,8 @@ public static class MethodClosureBridge
             callArgs.Add(usesSwiftSelf
                 ? $"new SwiftSelf((void*){selfHandle})"
                 : selfHandle);
+            // The receiver is read off this wrapper's own handle: hold the wrapper as well.
+            borrowedArguments.Add("this");
         }
 
         // Pin UTF-8 byte arrays for Swift.String params so the Swift @_cdecl adapter can read

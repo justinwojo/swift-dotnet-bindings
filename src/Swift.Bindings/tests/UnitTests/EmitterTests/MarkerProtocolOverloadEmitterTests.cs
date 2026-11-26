@@ -486,6 +486,23 @@ public class MarkerProtocolOverloadEmitterTests
         Assert.Contains("return global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Widget>(__result);", cs);
     }
 
+    /// <summary>
+    /// An instance overload reads its receiver off this wrapper's payload, which is then the
+    /// wrapper's last use: it is held until the call has returned, whether the overload returns.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void EmitOverloads_InstanceOverload_HoldsTheReceiverUntilTheCallReturns(bool selfReturn)
+    {
+        var parent = CreateClassDecl("Widget");
+        var method = CreateMarkerMethod(selfReturn ? "adding" : "offset", parent,
+            selfReturn ? new NamedTypeSpec("TestModule.Widget") : TupleTypeSpec.Empty);
+        var (cs, _) = Emit(method, parent, "Swift.Double");
+
+        BorrowedOwnerAssert.HeldAfter(cs, "_MP_Double(", "this", from: selfReturn ? " Adding(double amount)" : " Offset(double amount)");
+    }
+
     [Fact]
     public void EmitOverloads_ReturnWhoseNameOnlyEndsWithTheParentName_Declined()
     {

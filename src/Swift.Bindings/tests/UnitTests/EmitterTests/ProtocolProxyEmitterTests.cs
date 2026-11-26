@@ -4600,37 +4600,7 @@ public class ProtocolProxyEmitterTests
     [Fact]
     public void EmitProxyClass_MixedMultiClosureExistentialReturn_MarshalsInOrderAndOwnsResult()
     {
-        RegisterProtocol("TargetProtocol");
-        RegisterObjCBridgeableType("Foundation.URLRequest", "Foundation.NSUrlRequest");
-        var protocolDecl = CreateSimpleProtocol("MixedLoader");
-        var method = CreateMethodDecl("load");
-        method.CSSignature[0].SwiftTypeSpec =
-            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.TargetProtocol") });
-        method.CSSignature.Add(new ArgumentDecl
-        {
-            Name = "request", PrivateName = "request",
-            SwiftTypeSpec = new NamedTypeSpec("Foundation.URLRequest"),
-            IsInOut = false, IsGeneric = false,
-            ParentDecl = null, ModuleDecl = null
-        });
-        method.CSSignature.Add(CreateClosureParameter("onData", new NamedTypeSpec("Swift.Int32")));
-        method.CSSignature.Add(CreateClosureParameter("completion",
-            new NamedTypeSpec("Swift.Optional",
-                new NamedTypeSpec("Swift.Error") { IsAny = true })));
-        protocolDecl.Methods.Add(method);
-
-        var classification = new WitnessDispatchEmitter(_typeDatabase, NullLogger.Instance, "TestModule")
-            .ClassifyMethodDispatchWithReason(method);
-        Assert.True(classification.Kind == MethodDispatchKind.ClosureParameters, classification.Reason);
-
-        var methodKey = ProtocolMethodDisambiguator.EffectiveRawKey(method, protocolDecl, _typeDatabase);
-        var stringWriter = new StringWriter();
-        var writer = new CSharpWriter(stringWriter);
-        _emitter.EmitProxyClass(
-            writer, protocolDecl,
-            skippedMethodKeys: new HashSet<string> { methodKey },
-            closureSkippedMethodKeys: new HashSet<string> { methodKey });
-        var output = stringWriter.ToString();
+        var output = EmitMixedClosureLoader();
 
         var methodIdx = output.IndexOf("public ITargetProtocol Load(", StringComparison.Ordinal);
         Assert.True(methodIdx >= 0, "Expected the mixed closure requirement implementation");
@@ -4663,6 +4633,54 @@ public class ProtocolProxyEmitterTests
         Assert.Contains("finally", methodBody);
         Assert.Contains("closureHandle1.Dispose();", methodBody);
         Assert.Contains("closureHandle2.Dispose();", methodBody);
+    }
+
+    /// <summary>
+    /// A requirement with closure parameters passes each object argument as the pointer its
+    /// wrapper owns, so the wrapper is held until the dispatch call has returned.
+    /// </summary>
+    [Fact]
+    public void EmitProxyClass_ClosureRequirement_HoldsTheObjectArgumentUntilTheCallReturns()
+    {
+        var output = EmitMixedClosureLoader();
+
+        BorrowedOwnerAssert.HeldAfter(output, "NativeMethods.SBW_MixedLoader_method_load_0(", "request",
+            from: "public ITargetProtocol Load(");
+    }
+
+    private string EmitMixedClosureLoader()
+    {
+        RegisterProtocol("TargetProtocol");
+        RegisterObjCBridgeableType("Foundation.URLRequest", "Foundation.NSUrlRequest");
+        var protocolDecl = CreateSimpleProtocol("MixedLoader");
+        var method = CreateMethodDecl("load");
+        method.CSSignature[0].SwiftTypeSpec =
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.TargetProtocol") });
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "request", PrivateName = "request",
+            SwiftTypeSpec = new NamedTypeSpec("Foundation.URLRequest"),
+            IsInOut = false, IsGeneric = false,
+            ParentDecl = null, ModuleDecl = null
+        });
+        method.CSSignature.Add(CreateClosureParameter("onData", new NamedTypeSpec("Swift.Int32")));
+        method.CSSignature.Add(CreateClosureParameter("completion",
+            new NamedTypeSpec("Swift.Optional",
+                new NamedTypeSpec("Swift.Error") { IsAny = true })));
+        protocolDecl.Methods.Add(method);
+
+        var classification = new WitnessDispatchEmitter(_typeDatabase, NullLogger.Instance, "TestModule")
+            .ClassifyMethodDispatchWithReason(method);
+        Assert.True(classification.Kind == MethodDispatchKind.ClosureParameters, classification.Reason);
+
+        var methodKey = ProtocolMethodDisambiguator.EffectiveRawKey(method, protocolDecl, _typeDatabase);
+        var stringWriter = new StringWriter();
+        var writer = new CSharpWriter(stringWriter);
+        _emitter.EmitProxyClass(
+            writer, protocolDecl,
+            skippedMethodKeys: new HashSet<string> { methodKey },
+            closureSkippedMethodKeys: new HashSet<string> { methodKey });
+        return stringWriter.ToString();
     }
 
     [Fact]

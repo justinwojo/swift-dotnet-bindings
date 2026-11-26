@@ -1739,12 +1739,15 @@ namespace BindingsGeneration
         /// argument object (the container, a boxed error's box pointer, or an optional's buffer holding a
         /// copy of the container), so the callee borrows what that object owns; once the read is done
         /// nothing else roots the object, and its finalizer would release the payload while Swift is
-        /// still using it.
+        /// still using it. An enum argument crosses as the pointer to the payload its wrapper owns
+        /// (<see cref="MarshalledType.EnumSafeHandleType"/>), borrowed the same way.
         /// </summary>
         private void EmitBorrowedExistentialArgumentKeepAlive(CSharpWriter csWriter)
         {
             foreach (var parameter in _pInvokeSignature.Parameters.Where(p => p.Type is MarshalledType.Existential))
                 csWriter.WriteLine($"global::System.GC.KeepAlive({parameter.Name});");
+            foreach (var parameter in _pInvokeSignature.Parameters.Where(p => p.Type is MarshalledType.EnumSafeHandleType))
+                csWriter.WriteLine(LiveHandleExpressions.ArgumentKeepAlive(parameter.Name));
             foreach (var name in _borrowedOptionalExistentialNames)
                 csWriter.WriteLine($"global::System.GC.KeepAlive({name});");
             foreach (var name in _borrowedObjectArgumentNames.Distinct())

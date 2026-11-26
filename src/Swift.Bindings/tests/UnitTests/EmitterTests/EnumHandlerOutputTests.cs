@@ -2252,6 +2252,50 @@ public class EnumHandlerOutputTests
         Assert.Contains(report!.SkippedItems, i => i.Name == "TryGetDescribed" && i.Reason == SkipReason.UnsupportedType);
     }
 
+    /// <summary>
+    /// A payload that is a collection Swift bridges to Objective-C (a URL key) holding a Swift struct
+    /// is refused for the case factory and TryGet alike, with the reason, rather than emitted with a
+    /// cast from the struct to an Objective-C object that does not compile.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Emit_CaseCarryingABridgedDictionaryOfStructs_RefusesFactoryAndTryGet(bool besideAnotherValue)
+    {
+        var typeDatabase = CreateTypeDatabaseWithObjCBridgeableUrl();
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (identifier: SwiftTypeName.FromModuleQualifiedName("TestModule.Point"), record: new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Point"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
+                MetadataAccessor = "$s10TestModule5PointVMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+                InlineSize = 16,
+            })
+        });
+        var dictionary = new NamedTypeSpec("Swift.Dictionary", new NamedTypeSpec("Foundation.URL"), new NamedTypeSpec("TestModule.Point"));
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Payload", moduleDecl, isFrozen: true);
+        var linkCase = CreateCase("link");
+        linkCase.AssociatedValues.Add(dictionary);
+        if (besideAnotherValue)
+            linkCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        enumDecl.Cases.Add(linkCase);
+        var codeCase = CreateCase("code");
+        codeCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        enumDecl.Cases.Add(codeCase);
+
+        var (csOutput, _, report) = EmitReported(enumDecl, typeDatabase);
+
+        Assert.DoesNotContain(" Link(", csOutput);
+        Assert.DoesNotContain("TryGetLink", csOutput);
+        Assert.Contains("TryGetCode", csOutput);
+        Assert.Contains(report!.SkippedItems, i => i.Name == "Link" && i.Reason == SkipReason.UnsupportedSignature);
+        Assert.Contains(report.SkippedItems, i => i.Name == "TryGetLink" && i.Reason == SkipReason.UnsupportedSignature);
+    }
+
     private static TypeSpec BridgedShape(string shape)
     {
         var url = new NamedTypeSpec("Foundation.URL");
@@ -5035,6 +5079,62 @@ public class EnumHandlerOutputTests
         Assert.Contains("out Swift.Foundation.AnyError value1", csOutput);
         // Proxy wrapping for known protocol
         Assert.Contains("new ImageProcessingProxy(", csOutput);
+    }
+
+    /// <summary>
+    /// A case constructor hands Swift the pointer its associated value's wrapper owns. Reading it
+    /// is the wrapper's last use, so the wrapper is held until the constructor call has returned.
+    /// </summary>
+    [Fact]
+    public void Emit_EnumCaseWithNonFrozenStructParam_HoldsTheValueUntilTheCallReturns()
+    {
+        var typeDatabase = CreateTypeDatabaseWithNonFrozenStruct();
+        var moduleDecl = CreateModuleDecl("ImagePipeline");
+        var enumDecl = CreateEnumDecl("ImageError", moduleDecl, isFrozen: false);
+        var failedCase = CreateCase("failed");
+        failedCase.AssociatedValues.Add(new NamedTypeSpec("ImagePipeline.ImageResponse"));
+        enumDecl.Cases.Add(failedCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        var read = System.Text.RegularExpressions.Regex.Match(csOutput, @"(\w+)\.Payload\.DangerousGetHandle\(\)");
+        Assert.True(read.Success, csOutput);
+        BorrowedOwnerAssert.HeldAfter(csOutput, read.Value, read.Groups[1].Value);
+    }
+
+    /// <summary>
+    /// An optional associated value crosses as the pointer its wrapper owns, or null. The
+    /// argument is held until the case constructor call has returned, as a non-optional one is.
+    /// </summary>
+    [Fact]
+    public void Emit_EnumCaseWithOptionalNonFrozenStructParam_HoldsTheValueUntilTheCallReturns()
+    {
+        var typeDatabase = CreateTypeDatabaseWithNonFrozenStruct();
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (identifier: SwiftTypeName.FromModuleQualifiedName("Swift.Optional"), record: new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftOptional"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+                MetadataAccessor = "$sSqMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Enum
+            })
+        });
+        typeDatabase.AsyncLibraryName = "/tmp/ImagePipelineWrapper.dylib";
+        var moduleDecl = CreateModuleDecl("ImagePipeline");
+        var enumDecl = CreateEnumDecl("ImageError", moduleDecl, isFrozen: false);
+        var failedCase = CreateCase("failed");
+        failedCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("ImagePipeline.ImageResponse")));
+        enumDecl.Cases.Add(failedCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        var read = System.Text.RegularExpressions.Regex.Match(csOutput, @"(\w+) is \{ \} \w+ \? \w+\.Payload\.DangerousGetHandle\(\)");
+        Assert.True(read.Success, csOutput);
+        BorrowedOwnerAssert.HeldAfter(csOutput, read.Value, read.Groups[1].Value);
     }
 
     [Fact]

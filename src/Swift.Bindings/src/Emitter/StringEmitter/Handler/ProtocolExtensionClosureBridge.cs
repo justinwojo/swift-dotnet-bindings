@@ -584,6 +584,9 @@ public static class ProtocolExtensionClosureBridge
             csWriter.WriteLine("if (!__transferred && __gcHandle.IsAllocated) __gcHandle.Free();");
         else
             csWriter.WriteLine("if (__gcHandle.IsAllocated) __gcHandle.Free();");
+        // self_ was read off this wrapper's payload, which is then its last use: hold the wrapper
+        // until the call has returned.
+        csWriter.WriteLine(LiveHandleExpressions.ArgumentKeepAlive("this"));
         csWriter.Indent--;
         csWriter.WriteLine("}");
 

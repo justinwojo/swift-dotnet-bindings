@@ -375,9 +375,14 @@ namespace BindingsGeneration
                     methodDecl.ParentDecl is { Name: { Length: > 0 } pn } ? $"{pn}.{csMethodName}" : csMethodName);
 
                 var callExpr = $"{wrapperPInvokeName}({string.Join(", ", callArgs)})";
+                // An instance call reads its receiver off this wrapper's payload, which is then its
+                // last use: the wrapper is held until the call has returned.
+                var receiverHold = isInstance ? LiveHandleExpressions.ArgumentKeepAlive("this") : null;
                 if (isVoidReturn)
                 {
                     csWriter.WriteLine($"{callExpr};");
+                    if (receiverHold != null)
+                        csWriter.WriteLine(receiverHold);
                 }
                 else
                 {
@@ -385,6 +390,8 @@ namespace BindingsGeneration
                     // which the type's own payload factory adopts, as the primary member's
                     // conversion does, so the result joins the caller's dispose scope too.
                     csWriter.WriteLine($"var __result = {callExpr};");
+                    if (receiverHold != null)
+                        csWriter.WriteLine(receiverHold);
                     csWriter.WriteLine($"return global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<{csReturnType}>(__result);");
                 }
 

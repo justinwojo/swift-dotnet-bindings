@@ -225,6 +225,41 @@ public class ConstructorHandlerOutputTests
         Assert.DoesNotContain("TestModule.Variant", externLine);
     }
 
+    /// <summary>
+    /// A constructor's enum argument crosses as the pointer to the payload its wrapper owns, so
+    /// the argument is held until the initializer call has returned.
+    /// </summary>
+    [Fact]
+    public void Emit_ClassConstructorWithPayloadEnumParam_HoldsTheArgumentUntilTheCallReturns()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (identifier: SwiftTypeName.FromModuleQualifiedName("TestModule.Shape"), record: new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Shape"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Shape"),
+                MetadataAccessor = "$s10TestModule5ShapeOMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Enum
+            })
+        });
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Animal", moduleDecl, typeDatabase);
+        var constructor = CreateConstructorDeclForClass(
+            "init",
+            parentDecl,
+            moduleDecl,
+            parameters: new List<ArgumentDecl>
+            {
+                CreateArgument("shape", new NamedTypeSpec("TestModule.Shape"), moduleDecl)
+            });
+
+        var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
+
+        BorrowedOwnerAssert.HeldAfter(csOutput, "shape.Payload.DangerousGetHandle()", "shape");
+    }
+
     [Fact]
     public void Emit_FailableClassConstructor_WithoutWrapper_IsSkippedFailClosed()
     {

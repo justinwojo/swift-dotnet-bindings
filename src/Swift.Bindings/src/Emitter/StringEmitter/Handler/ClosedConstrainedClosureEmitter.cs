@@ -522,8 +522,8 @@ public static class ClosedConstrainedClosureEmitter
                 callArgs.Add(p.Identifier);
             }
         }
-        // The live `self` reference keeps the handle valid across the synchronous P/Invoke (matches the
-        // sync CSM / SCP extension convention — no AddRef/Release needed).
+        // Reading the handle is `self`'s last use, so under a precise collector its finalizer could
+        // release the object while Swift runs: `self` is held in the finally below.
         callArgs.Add(LiveHandleExpressions.SwiftObject("self"));
         csWriter.WriteLine($"{pinvokeName}({string.Join(", ", callArgs)});");
         foreach (var p in closures)
@@ -533,6 +533,7 @@ public static class ClosedConstrainedClosureEmitter
         csWriter.WriteLine("finally");
         csWriter.WriteLine("{");
         csWriter.Indent++;
+        csWriter.WriteLine(LiveHandleExpressions.ArgumentKeepAlive("self"));
         foreach (var p in closures)
             csWriter.WriteLine($"if (!{p.Identifier}Transferred && {p.Identifier}Handle.IsAllocated) {p.Identifier}Handle.Free();");
         csWriter.Indent--;

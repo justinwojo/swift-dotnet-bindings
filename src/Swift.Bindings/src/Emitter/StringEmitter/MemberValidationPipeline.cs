@@ -225,6 +225,17 @@ public class MemberValidationPipeline
             return ValidationResult.Skip(SkipReason.UnsupportedClosure,
                 "Member has a closure nested inside a collection (Array/Set/Dictionary) in its return type or a parameter; a collection of closures has no sound marshalling path (the wire carrier would be an illegal `delegate*` generic argument, and the runtime cannot reconstruct a C# delegate from a collection element).");
 
+        // ── Gate 2c: Collection Swift bridges to Objective-C that C# cannot bridge to match ──
+        // A soundness condition the compilers can't see on their own: the mismatch compiles (the
+        // C# payload fallback against Swift's AnyObject read), or fails only as a cast inside the
+        // conversion. See ObjCContainerBridgeAgreement.
+        for (var i = 0; i < methodDecl.CSSignature.Count; i++)
+        {
+            if (ObjCContainerBridgeAgreement.Disagrees(methodDecl.CSSignature[i].SwiftTypeSpec, _typeDatabase,
+                    methodDecl.ParentDecl as TypeDecl, isParameter: i > 0, out var bridgeDetail))
+                return ValidationResult.Skip(SkipReason.UnsupportedSignature, bridgeDetail);
+        }
+
         // ── Gate 3: Generic type callback gate (thunk closure in PInvokeHelperContext) ──
         // Methods/constructors in generic types that need [UnmanagedCallersOnly] callbacks
         // can't be emitted because callbacks can't be hoisted to the generic helper class.
@@ -852,6 +863,12 @@ public class MemberValidationPipeline
             return ValidationResult.Skip(SkipReason.UnsupportedClosure,
                 "Property has a closure nested inside a collection (Array/Set/Dictionary); a collection of closures has no sound marshalling path (the wire carrier would be an illegal `delegate*` generic argument, and the runtime cannot reconstruct a C# delegate from a collection element).");
 
+        // A collection Swift bridges to Objective-C that C# cannot bridge to match — the property
+        // mirror of the method gate (ObjCContainerBridgeAgreement).
+        if (ObjCContainerBridgeAgreement.Disagrees(propertyDecl.SwiftTypeSpec, _typeDatabase,
+                propertyDecl.ParentDecl as TypeDecl, isParameter: false, out var propertyBridgeDetail))
+            return ValidationResult.Skip(SkipReason.UnsupportedSignature, propertyBridgeDetail);
+
         // Direct-lane closure-callback argument ABI — the property mirror of the method gate.
         // A settable closure property hands the closure to Swift through a reverse CallConvSwift
         // trampoline; Swift passes a loadable callback argument by value in registers, and a shape
@@ -1075,6 +1092,18 @@ public class MemberValidationPipeline
             subscriptDecl.IndexParameters.Any(p => ClosureHandler.ContainsClosureNestedInCollection(p.SwiftTypeSpec)))
             return ValidationResult.Skip(SkipReason.UnsupportedClosure,
                 "Subscript has a closure nested inside a collection (Array/Set/Dictionary) in its element type or an index parameter; a collection of closures has no sound marshalling path (the wire carrier would be an illegal `delegate*` generic argument, and the runtime cannot reconstruct a C# delegate from a collection element).");
+
+        // A collection Swift bridges to Objective-C that C# cannot bridge to match — the subscript
+        // mirror of the method gate (ObjCContainerBridgeAgreement).
+        if (ObjCContainerBridgeAgreement.Disagrees(subscriptDecl.ReturnTypeSpec, _typeDatabase,
+                subscriptDecl.ParentDecl as TypeDecl, isParameter: false, out var subscriptBridgeDetail))
+            return ValidationResult.Skip(SkipReason.UnsupportedSignature, subscriptBridgeDetail);
+        foreach (var index in subscriptDecl.IndexParameters)
+        {
+            if (ObjCContainerBridgeAgreement.Disagrees(index.SwiftTypeSpec, _typeDatabase,
+                    subscriptDecl.ParentDecl as TypeDecl, isParameter: true, out var indexBridgeDetail))
+                return ValidationResult.Skip(SkipReason.UnsupportedSignature, indexBridgeDetail);
+        }
 
         // A closure element handed back by the getter. A returned closure is invocable only through
         // the cdecl invoke thunk, and the subscript accessors have no thunk lane: the getter returns

@@ -701,117 +701,139 @@ public static class ConstrainedExtensionEmitter
             return string.Join(", ", args);
         }
 
-        switch (shape)
+        // An instance getter reads its receiver off `self`'s payload, which is then `self`'s last
+        // use: hold `self` until the call has returned.
+        if (!isStatic)
         {
-            case CEReturnShape.String:
-                // String: stackalloc a fixed 2-word (SBW_Utf8Slice) scratch buffer to receive
-                // the slice (pointer + length), call the P/Invoke, then marshal the slice to a
-                // managed string. ReadUtf8Slice copies the bytes out before we return, so the
-                // buffer never escapes the frame — no per-call malloc/free needed. (The former
-                // NativeMemory.Alloc/Free only reclaimed this 16-byte container; stackalloc
-                // reclaims it identically on frame exit, including the exceptional path.)
-                csWriter.WriteLine("unsafe");
-                csWriter.WriteLine("{");
-                csWriter.Indent++;
-                csWriter.WriteLine("byte* _cdeclBuf = stackalloc byte[nint.Size * 2];");
-                csWriter.WriteLine("var resultPtr = (IntPtr)_cdeclBuf;");
-                csWriter.WriteLine($"NativeMethods.{symbolName}({CallArgs("resultPtr")});");
-                csWriter.WriteLine("return SwiftMarshal.ReadUtf8Slice(resultPtr);");
-                csWriter.Indent--;
-                csWriter.WriteLine("}");
-                break;
+            csWriter.WriteLine("try");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+        }
+        WriteGetterBody();
+        if (!isStatic)
+        {
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine("finally");
+            csWriter.WriteLine("{");
+            csWriter.WriteLine($"    {LiveHandleExpressions.ArgumentKeepAlive("self")}");
+            csWriter.WriteLine("}");
+        }
 
-            case CEReturnShape.Primitive:
-                // Primitive: direct P/Invoke call
-                csWriter.WriteLine($"return NativeMethods.{symbolName}({CallArgs(null)});");
-                break;
+        void WriteGetterBody()
+        {
+            switch (shape)
+            {
+                case CEReturnShape.String:
+                    // String: stackalloc a fixed 2-word (SBW_Utf8Slice) scratch buffer to receive
+                    // the slice (pointer + length), call the P/Invoke, then marshal the slice to a
+                    // managed string. ReadUtf8Slice copies the bytes out before we return, so the
+                    // buffer never escapes the frame — no per-call malloc/free needed. (The former
+                    // NativeMemory.Alloc/Free only reclaimed this 16-byte container; stackalloc
+                    // reclaims it identically on frame exit, including the exceptional path.)
+                    csWriter.WriteLine("unsafe");
+                    csWriter.WriteLine("{");
+                    csWriter.Indent++;
+                    csWriter.WriteLine("byte* _cdeclBuf = stackalloc byte[nint.Size * 2];");
+                    csWriter.WriteLine("var resultPtr = (IntPtr)_cdeclBuf;");
+                    csWriter.WriteLine($"NativeMethods.{symbolName}({CallArgs("resultPtr")});");
+                    csWriter.WriteLine("return SwiftMarshal.ReadUtf8Slice(resultPtr);");
+                    csWriter.Indent--;
+                    csWriter.WriteLine("}");
+                    break;
 
-            case CEReturnShape.NonFrozenStruct:
-                // Indirect-result shape: allocate VWT-sized buffer, pass its address as the
-                // @_cdecl wrapper's ordinary first argument (a C-convention P/Invoke must not
-                // carry SwiftIndirectResult, which only the Swift convention places in the
-                // indirect-result register), then marshal the value out. Must match the existing
-                // PropertyHandler emission so MarshalFromSwift<T> sees the same layout.
-                //
-                // Ownership: for non-frozen structs / classes projected as ISwiftObject,
-                // SwiftMarshal.MarshalFromSwift<T>(buffer) wraps the buffer in the returned
-                // SafeHandle and the wrapper takes ownership. We must NOT free on the
-                // success path (use-after-free / double-free on disposal of the returned
-                // object). The try / catch+Free+rethrow shape mirrors
-                // ExtensionMarshallingHelper.cs:263 (ReturnKind.NonFrozenStruct): on the
-                // exceptional path the wrapper call or MarshalFromSwift throws before
-                // ownership transfers, so the buffer must be freed to avoid a leak; on
-                // the success path control returns through MarshalFromSwift before
-                // reaching the catch and the SafeHandle owns the buffer thereafter.
-                csWriter.WriteLines($$"""
-                    unsafe
-                    {
-                        var metadata = SwiftObjectHelper<{{csharpReturnType}}>.GetTypeMetadata();
-                        IntPtr buffer = (IntPtr)System.Runtime.InteropServices.NativeMemory.Alloc(metadata.Size);
-                        try
+                case CEReturnShape.Primitive:
+                    // Primitive: direct P/Invoke call
+                    csWriter.WriteLine($"return NativeMethods.{symbolName}({CallArgs(null)});");
+                    break;
+
+                case CEReturnShape.NonFrozenStruct:
+                    // Indirect-result shape: allocate VWT-sized buffer, pass its address as the
+                    // @_cdecl wrapper's ordinary first argument (a C-convention P/Invoke must not
+                    // carry SwiftIndirectResult, which only the Swift convention places in the
+                    // indirect-result register), then marshal the value out. Must match the existing
+                    // PropertyHandler emission so MarshalFromSwift<T> sees the same layout.
+                    //
+                    // Ownership: for non-frozen structs / classes projected as ISwiftObject,
+                    // SwiftMarshal.MarshalFromSwift<T>(buffer) wraps the buffer in the returned
+                    // SafeHandle and the wrapper takes ownership. We must NOT free on the
+                    // success path (use-after-free / double-free on disposal of the returned
+                    // object). The try / catch+Free+rethrow shape mirrors
+                    // ExtensionMarshallingHelper.cs:263 (ReturnKind.NonFrozenStruct): on the
+                    // exceptional path the wrapper call or MarshalFromSwift throws before
+                    // ownership transfers, so the buffer must be freed to avoid a leak; on
+                    // the success path control returns through MarshalFromSwift before
+                    // reaching the catch and the SafeHandle owns the buffer thereafter.
+                    csWriter.WriteLines($$"""
+                        unsafe
                         {
+                            var metadata = SwiftObjectHelper<{{csharpReturnType}}>.GetTypeMetadata();
+                            IntPtr buffer = (IntPtr)System.Runtime.InteropServices.NativeMemory.Alloc(metadata.Size);
+                            try
+                            {
+                                var resultPtr = (IntPtr)buffer;
+                                NativeMethods.{{symbolName}}({{CallArgs("resultPtr")}});
+                                return SwiftMarshal.MarshalFromSwift<{{csharpReturnType}}>(buffer);
+                            }
+                            catch
+                            {
+                                System.Runtime.InteropServices.NativeMemory.Free((void*)buffer);
+                                throw;
+                            }
+                        }
+                        """);
+                    break;
+
+                case CEReturnShape.FoundationDate:
+                    // Date is `frozen=true requiresMemoryManagement=false`; its Swift ABI is a
+                    // single `Double` carrying `timeIntervalSinceReferenceDate` (seconds since
+                    // 2001-01-01 UTC). Project to System.DateTimeOffset via the same Swift epoch
+                    // constant used by DateProjection.GetReturnPlan(Direct).
+                    csWriter.WriteLine(
+                        $"var seconds = NativeMethods.{symbolName}({CallArgs(null)});");
+                    csWriter.WriteLine(
+                        $"return {DateProjection.SwiftEpoch}.AddSeconds(seconds);");
+                    break;
+
+                case CEReturnShape.FoundationUUID:
+                    // UUID is a frozen 16-byte tuple of UInt8s. Mirror the existing
+                    // BlittableProjection("System.Guid") shape: stackalloc a 16-byte indirect-result
+                    // buffer, read it back as a System.Guid (value-copied out before the frame
+                    // exits), so no per-call malloc/free is needed. (The former NativeMemory.Alloc/
+                    // Free only reclaimed this 16-byte container; stackalloc reclaims it identically,
+                    // including the exceptional path — Guid is frozen, no ARC/ownership in the buffer.)
+                    csWriter.WriteLines($$"""
+                        unsafe
+                        {
+                            byte* buffer = stackalloc byte[16];
                             var resultPtr = (IntPtr)buffer;
                             NativeMethods.{{symbolName}}({{CallArgs("resultPtr")}});
-                            return SwiftMarshal.MarshalFromSwift<{{csharpReturnType}}>(buffer);
+                            return *(System.Guid*)buffer;
                         }
-                        catch
+                        """);
+                    break;
+
+                case CEReturnShape.FoundationData:
+                    // Foundation.Data is `frozen=true requiresMemoryManagement=false` with a
+                    // 16-byte Swift layout (long _flags + IntPtr _object). Mirror the
+                    // (*(Swift.Foundation.Data*)(void*)buffer).ToByteArray() pattern used by
+                    // WrapperEmitter.Return.cs:1316. The Data struct is value-copied out of the
+                    // buffer and ToByteArray() copies the underlying bytes via Swift's CopyBytes
+                    // P/Invoke before we return — so the 16-byte container can be a stackalloc
+                    // (reclaimed on frame exit) instead of a per-call malloc/free. The free only
+                    // ever reclaimed the container (the copied-out Data value carries the _object
+                    // pointer independently); stackalloc reclaims it identically.
+                    csWriter.WriteLines($$"""
+                        unsafe
                         {
-                            System.Runtime.InteropServices.NativeMemory.Free((void*)buffer);
-                            throw;
+                            byte* buffer = stackalloc byte[16];
+                            var resultPtr = (IntPtr)buffer;
+                            NativeMethods.{{symbolName}}({{CallArgs("resultPtr")}});
+                            return (*(Swift.Foundation.Data*)(void*)buffer).ToByteArray();
                         }
-                    }
-                    """);
-                break;
-
-            case CEReturnShape.FoundationDate:
-                // Date is `frozen=true requiresMemoryManagement=false`; its Swift ABI is a
-                // single `Double` carrying `timeIntervalSinceReferenceDate` (seconds since
-                // 2001-01-01 UTC). Project to System.DateTimeOffset via the same Swift epoch
-                // constant used by DateProjection.GetReturnPlan(Direct).
-                csWriter.WriteLine(
-                    $"var seconds = NativeMethods.{symbolName}({CallArgs(null)});");
-                csWriter.WriteLine(
-                    $"return {DateProjection.SwiftEpoch}.AddSeconds(seconds);");
-                break;
-
-            case CEReturnShape.FoundationUUID:
-                // UUID is a frozen 16-byte tuple of UInt8s. Mirror the existing
-                // BlittableProjection("System.Guid") shape: stackalloc a 16-byte indirect-result
-                // buffer, read it back as a System.Guid (value-copied out before the frame
-                // exits), so no per-call malloc/free is needed. (The former NativeMemory.Alloc/
-                // Free only reclaimed this 16-byte container; stackalloc reclaims it identically,
-                // including the exceptional path — Guid is frozen, no ARC/ownership in the buffer.)
-                csWriter.WriteLines($$"""
-                    unsafe
-                    {
-                        byte* buffer = stackalloc byte[16];
-                        var resultPtr = (IntPtr)buffer;
-                        NativeMethods.{{symbolName}}({{CallArgs("resultPtr")}});
-                        return *(System.Guid*)buffer;
-                    }
-                    """);
-                break;
-
-            case CEReturnShape.FoundationData:
-                // Foundation.Data is `frozen=true requiresMemoryManagement=false` with a
-                // 16-byte Swift layout (long _flags + IntPtr _object). Mirror the
-                // (*(Swift.Foundation.Data*)(void*)buffer).ToByteArray() pattern used by
-                // WrapperEmitter.Return.cs:1316. The Data struct is value-copied out of the
-                // buffer and ToByteArray() copies the underlying bytes via Swift's CopyBytes
-                // P/Invoke before we return — so the 16-byte container can be a stackalloc
-                // (reclaimed on frame exit) instead of a per-call malloc/free. The free only
-                // ever reclaimed the container (the copied-out Data value carries the _object
-                // pointer independently); stackalloc reclaims it identically.
-                csWriter.WriteLines($$"""
-                    unsafe
-                    {
-                        byte* buffer = stackalloc byte[16];
-                        var resultPtr = (IntPtr)buffer;
-                        NativeMethods.{{symbolName}}({{CallArgs("resultPtr")}});
-                        return (*(Swift.Foundation.Data*)(void*)buffer).ToByteArray();
-                    }
-                    """);
-                break;
+                        """);
+                    break;
+            }
         }
 
         csWriter.Indent--;
@@ -1606,7 +1628,10 @@ public static class ConstrainedExtensionEmitter
             && ClassifySelfAccess(parentTypeDecl, method.IsMutating, method.IsConsuming) == CESelfAccess.StructMove;
         if (!isStatic)
             EmitConsumedSelfGuard(csWriter, parentTypeDecl);
-        if (consumesSelf)
+        // An instance call reads its receiver off `self`'s payload, which is then `self`'s last use:
+        // under a precise collector its finalizer could free the buffer while Swift reads it, so
+        // `self` is held in the finally below (where a consuming call also marks it consumed).
+        if (!isStatic)
         {
             csWriter.WriteLine("try");
             csWriter.WriteLine("{");
@@ -1722,13 +1747,15 @@ public static class ConstrainedExtensionEmitter
                 break;
         }
 
-        if (consumesSelf)
+        if (!isStatic)
         {
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine("finally");
             csWriter.WriteLine("{");
-            csWriter.WriteLine("    self.Payload.MarkConsumed();");
+            if (consumesSelf)
+                csWriter.WriteLine("    self.Payload.MarkConsumed();");
+            csWriter.WriteLine($"    {LiveHandleExpressions.ArgumentKeepAlive("self")}");
             csWriter.WriteLine("}");
         }
 
