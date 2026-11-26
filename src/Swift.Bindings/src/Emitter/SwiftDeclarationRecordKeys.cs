@@ -72,7 +72,8 @@ namespace BindingsGeneration
 
             /// <summary>
             /// The parameters in the qualified form: each type named by its namespace and enclosing types,
-            /// every name with its own generic arity (<c>System.Collections.Generic.IReadOnlyList`1&lt;System.Int32?&gt;</c>),
+            /// a nested type after <c>+</c> (<c>Kit.Box+Inner</c>), every name with its own generic arity
+            /// (<c>System.Collections.Generic.IReadOnlyList`1&lt;System.Int32?&gt;</c>),
             /// <c>?</c> only for a <c>Nullable&lt;T&gt;</c>, and a type parameter by its position (<c>!0</c>,
             /// <c>!!0</c>), so two members have the same list exactly when they have the same CLR signature.
             /// </summary>
@@ -84,7 +85,7 @@ namespace BindingsGeneration
             /// </summary>
             public string QualifiedParent { get; init; } = "";
 
-            /// <summary>For a type, its metadata name (with its own generic arity, <c>Box`1</c>); empty otherwise.</summary>
+            /// <summary>For a type, its qualified name (<see cref="QualifiedParameters"/>'s form, <c>Kit.Box`1+Inner</c>); empty otherwise.</summary>
             public string QualifiedName { get; init; } = "";
 
             /// <summary>The member's full path: its declaring type's path and its name.</summary>
@@ -222,7 +223,7 @@ namespace BindingsGeneration
                 }
                 if (elements.Count < 2)
                     return null;
-                core = (qualified ? "global::System.ValueTuple`" + elements.Count : "ValueTuple") + "<" + string.Join(",", elements) + ">";
+                core = (qualified ? Language + "System.ValueTuple`" + elements.Count : "ValueTuple") + "<" + string.Join(",", elements) + ">";
                 at = close + 1;
             }
             else if (text.AsSpan(at).StartsWith("delegate*", StringComparison.Ordinal))
@@ -253,7 +254,7 @@ namespace BindingsGeneration
                 while (true)
                 {
                     var from = at;
-                    while (at < text.Length && (char.IsLetterOrDigit(text[at]) || text[at] is '_' or '@' or '.' or ':'))
+                    while (at < text.Length && (IdentifierPart(text[at]) || text[at] is '@' or '.' or ':'))
                         at++;
                     if (at == from)
                         return null;
@@ -339,8 +340,14 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// The qualifier of a type C# names by its own syntax, a keyword or a tuple: always the core
+        /// library's type, whatever a compilation declares. No C# spelling holds it, so no alias is read as it.
+        /// </summary>
+        public const string Language = "#";
+
+        /// <summary>
         /// A type name as spelled, without verbatim <c>@</c>s, with a lone C# keyword as its
-        /// <c>global::System</c> type.
+        /// <see cref="Language"/> <c>System</c> type.
         /// </summary>
         private static string QualifiedSpelling(string name)
         {
@@ -348,7 +355,7 @@ namespace BindingsGeneration
             var alias = colons < 0 ? "" : name[..(colons + 2)];
             var path = name[alias.Length..];
             if (alias.Length == 0 && path.IndexOf('.') < 0 && SimpleName(path) is var clr && clr != path && !path.StartsWith('@'))
-                return "global::System." + clr;
+                return Language + "System." + clr;
             return alias + string.Join(".", path.Split('.').Select(s => s.StartsWith('@') ? s[1..] : s));
         }
 
@@ -356,14 +363,19 @@ namespace BindingsGeneration
         /// Whether the key's qualified parameter <paramref name="spelled"/> (<see cref="Key.QualifiedParameters"/>)
         /// can name the compiled qualified parameter <paramref name="compiled"/> (<see cref="Member.QualifiedParameters"/>)
         /// of a member of the type <paramref name="container"/> (its <see cref="Member.QualifiedParent"/>),
-        /// for a pair <see cref="Resolve"/> already matched by simple names. A name C# reads from the
-        /// global namespace (a keyword, <c>global::</c>) must be the compiled type; any other must end
-        /// the compiled type's name, since generation may qualify it further after the key is taken. One
-        /// reading is narrower: a relative name whose first segment (<c>Outer`1</c>) the emitted code reads
-        /// as the container's own nested type (<paramref name="ownNestedType"/>, which the caller answers
-        /// only where the emitted spelling is the key's and C# lookup finds that type first) can only be
-        /// a type under it. Anything this cannot pair is allowed, so the answer is never narrower than
-        /// the compiled member's real reading.
+        /// for a pair <see cref="Resolve"/> already matched by simple names. A type keeps its own name
+        /// however C# reaches it, so the last segments must agree. A namespace-level type is reached
+        /// only through namespaces: a name C# reads from the global namespace (a keyword, <c>global::</c>)
+        /// must be it, and any other must end it, since generation may qualify it further after the key
+        /// is taken. A nested type may also be reached through a type that inherits it
+        /// (<c>Deps.Child.Value</c> for <c>Deps.Base+Value</c>), so any spelling of its name can name it,
+        /// except a single-segment <c>global::Value</c>, and a keyword or tuple (<see cref="Language"/>),
+        /// which is always the core library's type. One reading is narrower: a relative name whose first segment
+        /// (<c>Outer`1</c>) the emitted code reads as the container's own nested type
+        /// (<paramref name="ownNestedType"/>, which the caller answers only where the emitted spelling is
+        /// the key's and C# lookup finds that type first) is that type, or a type nested in or inherited
+        /// by it. Anything this cannot pair is allowed, so the answer is never narrower than the compiled
+        /// member's real reading.
         /// </summary>
         public static bool CanName(string spelled, string compiled, string container, Func<string, bool> ownNestedType)
         {
@@ -384,18 +396,25 @@ namespace BindingsGeneration
                 return true;
             if (spelled == "fnptr" || compiled == "fnptr")
                 return spelled == compiled;
-            if (spelled.StartsWith("global::", StringComparison.Ordinal))
-                return spelled["global::".Length..] == compiled;
+            if (spelled.StartsWith(Language, StringComparison.Ordinal))
+                return spelled[Language.Length..] == compiled;
+            var global = spelled.StartsWith("global::", StringComparison.Ordinal);
+            var path = global ? spelled["global::".Length..] : spelled;
             // Another alias qualifier (`extern alias`) names something this index cannot see.
-            if (spelled.Contains("::", StringComparison.Ordinal))
+            if (path.Contains("::", StringComparison.Ordinal))
                 return true;
-            var segments = spelled.Split('.');
-            var full = compiled.Split('.');
-            if (segments.Length > full.Length || !full.AsSpan(full.Length - segments.Length).SequenceEqual(segments))
+            var segments = path.Split('.');
+            var full = compiled.Split('.', '+');
+            if (segments[^1] != full[^1])
                 return false;
-            if (container.Length > 0 && ownNestedType(segments[0]))
-                return compiled == container + "." + spelled;
-            return true;
+            var nested = compiled.Contains('+');
+            if (!global && container.Length > 0 && ownNestedType(segments[0]))
+                return segments.Length == 1 ? compiled == container + "+" + path : nested;
+            if (!nested)
+                return global
+                    ? path == compiled
+                    : segments.Length <= full.Length && full.AsSpan(full.Length - segments.Length).SequenceEqual(segments);
+            return !global || segments.Length > 1;
         }
 
         // The type names of a qualified form, in order: everything between its punctuation.
@@ -474,6 +493,17 @@ namespace BindingsGeneration
             }
             yield return list[from..];
         }
+
+        // A character a C# identifier may hold after its first: letters and letter numbers, digits,
+        // combining marks, connectors and formatting characters (C# spec, identifiers). A Swift name
+        // the generator writes verbatim may hold any of them.
+        private static bool IdentifierPart(char c) => char.GetUnicodeCategory(c) is
+            System.Globalization.UnicodeCategory.UppercaseLetter or System.Globalization.UnicodeCategory.LowercaseLetter
+            or System.Globalization.UnicodeCategory.TitlecaseLetter or System.Globalization.UnicodeCategory.ModifierLetter
+            or System.Globalization.UnicodeCategory.OtherLetter or System.Globalization.UnicodeCategory.LetterNumber
+            or System.Globalization.UnicodeCategory.DecimalDigitNumber or System.Globalization.UnicodeCategory.NonSpacingMark
+            or System.Globalization.UnicodeCategory.SpacingCombiningMark or System.Globalization.UnicodeCategory.ConnectorPunctuation
+            or System.Globalization.UnicodeCategory.Format;
 
         private static int MatchingClose(string text, int open, char opening, char closing)
         {
@@ -574,7 +604,7 @@ namespace BindingsGeneration
                 if (member.Kind == "type")
                 {
                     _types[member.Path] = member;
-                    _qualifiedTypes.Add(member.QualifiedParent.Length > 0 ? member.QualifiedParent + "." + member.QualifiedName : member.QualifiedName);
+                    _qualifiedTypes.Add(member.QualifiedName);
                 }
                 var id = (member.ParentPath, member.Name);
                 if (!_byName.TryGetValue(id, out var list))
@@ -583,13 +613,29 @@ namespace BindingsGeneration
             }
 
             /// <summary>
-            /// The members <paramref name="key"/> can name: its declaring type and name, its parameter
-            /// count and generic arity, and parameters it spells (<see cref="Spells"/>). A module-level
-            /// function's key names no declaring type; it names a member of a class
+            /// The members <paramref name="key"/> can name: those it spells (<see cref="Spelled"/>), of its
+            /// generic arity when any of them has it.
+            /// </summary>
+            public IReadOnlyList<Member> Resolve(Key key, string? module = null, IReadOnlySet<string>? swiftTypes = null)
+            {
+                var spelled = Spelled(key, module, swiftTypes);
+                if (key.Parameters is null)
+                    return spelled;
+                // A key's `N is the Swift declaration's generic arity, which also counts a protocol's
+                // `Self` and a generic type's own parameters, which the C# member does not declare: it
+                // picks between members it spells, but does not refuse the one member it spells.
+                var exact = spelled.Where(m => m.GenericArity == key.GenericArity).ToList();
+                return exact.Count > 0 ? exact : spelled;
+            }
+
+            /// <summary>
+            /// Every member <paramref name="key"/> spells, whatever its generic arity: its declaring type
+            /// and name, its parameter count, and parameters it spells (<see cref="Spells"/>). A
+            /// module-level function's key names no declaring type; it names a member of a class
             /// <see cref="FunctionHolders"/> lists for <paramref name="module"/> and the record's Swift
             /// types <paramref name="swiftTypes"/>.
             /// </summary>
-            public IReadOnlyList<Member> Resolve(Key key, string? module = null, IReadOnlySet<string>? swiftTypes = null)
+            public IReadOnlyList<Member> Spelled(Key key, string? module = null, IReadOnlySet<string>? swiftTypes = null)
             {
                 IEnumerable<Member> named = key.ParentPath.Length > 0
                     ? _byName.TryGetValue((key.ParentPath, key.Name), out var list) ? list : Enumerable.Empty<Member>()
@@ -601,13 +647,8 @@ namespace BindingsGeneration
                 if (key.Parameters is not { } parameters)
                     return named.Where(m => m.Kind is "property" or "field" or "event" or "type").ToList();
                 var kind = key.IsIndexer ? "indexer" : key.Name == ".ctor" ? "ctor" : "method";
-                var spelled = named.Where(m => m.Kind == kind && m.Parameters.Length == parameters.Length
-                                               && m.Parameters.Zip(parameters).All(p => Spells(p.Second, p.First))).ToList();
-                // A key's `N is the Swift declaration's generic arity, which also counts a protocol's
-                // `Self` and a generic type's own parameters, which the C# member does not declare: it
-                // picks between members it spells, but does not refuse the one member it spells.
-                var exact = spelled.Where(m => m.GenericArity == key.GenericArity).ToList();
-                return exact.Count > 0 ? exact : spelled;
+                return named.Where(m => m.Kind == kind && m.Parameters.Length == parameters.Length
+                                        && m.Parameters.Zip(parameters).All(p => Spells(p.Second, p.First))).ToList();
             }
         }
 
@@ -633,21 +674,23 @@ namespace BindingsGeneration
                 // namespace shares.
                 var ns = md.GetString(type.Namespace);
                 if (ns == @namespace)
-                    AddType(md, handle, "", ns, index);
+                    AddType(md, handle, "", Qualified(ns, md.GetString(type.Name)), index);
                 else if (ns.StartsWith(@namespace + ".", StringComparison.Ordinal))
-                    AddType(md, handle, ns[(@namespace.Length + 1)..], ns, index);
+                    AddType(md, handle, ns[(@namespace.Length + 1)..], Qualified(ns, md.GetString(type.Name)), index);
             }
             return index;
         }
 
-        private static void AddType(MetadataReader md, TypeDefinitionHandle handle, string parentPath, string qualifiedParent, AssemblyIndex index)
+        // `qualified` is the type's own qualified name (Member.QualifiedName).
+        private static void AddType(MetadataReader md, TypeDefinitionHandle handle, string parentPath, string qualified, AssemblyIndex index)
         {
             var type = md.GetTypeDefinition(handle);
             if (!Visible(type.Attributes))
                 return;
             var name = WithoutArity(md.GetString(type.Name));
             var path = parentPath.Length > 0 ? parentPath + "." + name : name;
-            var qualified = Qualified(qualifiedParent, md.GetString(type.Name));
+            var separator = Math.Max(qualified.LastIndexOf('+'), qualified.LastIndexOf('.'));
+            var qualifiedParent = separator < 0 ? "" : qualified[..separator];
             var isInterface = (type.Attributes & TypeAttributes.Interface) != 0;
             var baseType = BaseTypeName(md, type.BaseType);
             var kind = isInterface ? "interface" : baseType switch
@@ -666,10 +709,10 @@ namespace BindingsGeneration
                     .Select(i => NestedTypeName(md, md.GetInterfaceImplementation(i).Interface)).ToImmutableArray(),
                 Traits = CompilerGenerated(md, type.GetCustomAttributes()),
                 QualifiedParent = qualifiedParent,
-                QualifiedName = md.GetString(type.Name),
+                QualifiedName = qualified,
             });
             foreach (var nested in type.GetNestedTypes())
-                AddType(md, nested, path, qualified, index);
+                AddType(md, nested, path, qualified + "+" + md.GetString(md.GetTypeDefinition(nested).Name), index);
 
             var accessors = new HashSet<MethodDefinitionHandle>();
             foreach (var propertyHandle in type.GetProperties())
@@ -891,14 +934,16 @@ namespace BindingsGeneration
                     {
                         var definition = reader.GetTypeDefinition((TypeDefinitionHandle)handle);
                         var declaring = definition.GetDeclaringType();
-                        return Qualified(declaring.IsNil ? reader.GetString(definition.Namespace) : NestedQualifiedName(reader, declaring),
-                            reader.GetString(definition.Name));
+                        return declaring.IsNil
+                            ? Qualified(reader.GetString(definition.Namespace), reader.GetString(definition.Name))
+                            : NestedQualifiedName(reader, declaring) + "+" + reader.GetString(definition.Name);
                     }
                     case HandleKind.TypeReference:
                     {
                         var reference = reader.GetTypeReference((TypeReferenceHandle)handle);
-                        return Qualified(reference.ResolutionScope.Kind == HandleKind.TypeReference
-                            ? NestedQualifiedName(reader, reference.ResolutionScope) : reader.GetString(reference.Namespace), reader.GetString(reference.Name));
+                        return reference.ResolutionScope.Kind == HandleKind.TypeReference
+                            ? NestedQualifiedName(reader, reference.ResolutionScope) + "+" + reader.GetString(reference.Name)
+                            : Qualified(reader.GetString(reference.Namespace), reader.GetString(reference.Name));
                     }
                     default:
                         return "";

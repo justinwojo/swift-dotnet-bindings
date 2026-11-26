@@ -98,7 +98,7 @@ public class SwiftDeclarationRecordKeysTests
     [InlineData("Box.Fill(System.Collections.Generic.IReadOnlyList<int?>?,Kit.Point?[],Point[]?)", "System.Collections.Generic.IReadOnlyList`1<System.Int32?>,Kit.Point?[],Kit.Point[]")]
     [InlineData("Box.Echo(T?)`1", "!!0")]
     [InlineData("Box.Raw(delegate* unmanaged<nint, int>,byte*)", "fnptr<System.IntPtr,System.Int32>,System.Byte*")]
-    [InlineData("NestUse.Hold(Kit.Nest<int>.Inner)", "Kit.Nest`1.Inner<System.Int32>")]
+    [InlineData("NestUse.Hold(Kit.Nest<int>.Inner)", "Kit.Nest`1+Inner<System.Int32>")]
     public void AMember_ListsItsParametersByFullName(string key, string parameters)
     {
         var member = Assert.Single(Index().Resolve(SwiftDeclarationRecordKeys.Parse(key)!));
@@ -110,17 +110,17 @@ public class SwiftDeclarationRecordKeysTests
     public void TheIndex_ListsEachTypeByFullName_WithItsOwnArity()
     {
         var types = Index().QualifiedTypes;
-        Assert.Contains("Kit.Box.Inner", types);
-        Assert.Contains("Kit.Nest`1.Inner", types);
+        Assert.Contains("Kit.Box+Inner", types);
+        Assert.Contains("Kit.Nest`1+Inner", types);
         Assert.DoesNotContain("Kit.Nest", types);
     }
 
     [Theory]
-    [InlineData("int?", "global::System.Int32?")]
+    [InlineData("int?", "#System.Int32?")]
     [InlineData("global::System.String", "global::System.String")]
-    [InlineData("System.Collections.Generic.IReadOnlyList<string?>", "System.Collections.Generic.IReadOnlyList`1<global::System.String?>")]
-    [InlineData("Kit.Nest<int>.Inner", "Kit.Nest`1.Inner<global::System.Int32>")]
-    [InlineData("(int a, string b)", "global::System.ValueTuple`2<global::System.Int32,global::System.String>")]
+    [InlineData("System.Collections.Generic.IReadOnlyList<string?>", "System.Collections.Generic.IReadOnlyList`1<#System.String?>")]
+    [InlineData("Kit.Nest<int>.Inner", "Kit.Nest`1.Inner<#System.Int32>")]
+    [InlineData("(int a, string b)", "#System.ValueTuple`2<#System.Int32,#System.String>")]
     [InlineData("ref Kit.@class", "&Kit.class")]
     // A verbatim keyword is an identifier, not the keyword's type.
     [InlineData("@int", "int")]
@@ -129,16 +129,31 @@ public class SwiftDeclarationRecordKeysTests
 
     [Theory]
     [InlineData("global::System.Int32", "System.Int32", "", true)]
-    [InlineData("global::System.Int32", "Kit.Kit.Int32", "", false)]
-    [InlineData("Int32", "Kit.Base.Int32", "", true)]
+    [InlineData("#System.Int32", "System.Int32", "", true)]
+    [InlineData("#System.Int32", "Kit.Kit+Int32", "", false)]
+    // An alias, even one named like a word the reader uses, names what this index cannot see.
+    [InlineData("language::Deps.Value", "Compat.Deps.Value", "", true)]
+    // A global type `System` would be what `global::System` names.
+    [InlineData("global::System.String", "System+String", "", true)]
+    [InlineData("Int32", "Kit.Base+Int32", "", true)]
     [InlineData("Int32", "System.Int32", "", true)]
     [InlineData("Int32", "Kit.Int32`1", "", false)]
     [InlineData("System.String", "System.String", "", true)]
     [InlineData("System.String", "System.String", "System", false)]
-    [InlineData("System.String", "Kit.Kit.System.String", "System", true)]
+    [InlineData("System.String", "Kit.Kit+System+String", "System", true)]
+    [InlineData("System.String", "Kit.Base+String", "System", true)]
+    [InlineData("Value", "Kit.Kit+Value", "Value", true)]
+    [InlineData("Value", "Kit.Base+Value", "Value", false)]
     [InlineData("Other.Value", "Other.Value", "", true)]
-    [InlineData("Other.Value", "Kit.Kit.Other.Value", "", true)]
-    [InlineData("System.Collections.Generic.IReadOnlyList`1<global::System.String>", "System.Collections.Generic.IReadOnlyList`1<Kit.Kit.String>", "", false)]
+    [InlineData("Other.Value", "Kit.Kit+Other+Value", "", true)]
+    [InlineData("Other.Value", "Kit.Other.Value", "", true)]
+    [InlineData("Other.Value", "Other.Thing", "", false)]
+    // A nested type may be reached through a type that inherits it; a namespace-level one only through namespaces.
+    [InlineData("Deps.Child.Value", "Deps.Base+Value", "", true)]
+    [InlineData("global::Deps.Child.Value", "Deps.Base+Value", "", true)]
+    [InlineData("Deps.Child.Value", "Deps.Value", "", false)]
+    [InlineData("global::Value", "Kit.Kit+Value", "", false)]
+    [InlineData("System.Collections.Generic.IReadOnlyList`1<#System.String>", "System.Collections.Generic.IReadOnlyList`1<Kit.Kit+String>", "", false)]
     [InlineData("T", "!!0", "", true)]
     public void AQualifiedSpelling_NamesEveryCompiledTypeItCanBeRead(string spelled, string compiled, string ownNested, bool names) =>
         // A relative name can be any type its name ends, unless its first segment is the container's own nested type.

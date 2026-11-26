@@ -642,25 +642,24 @@ public static class SwiftBindingPackageMerge
             // A key spells its parameters as the member declares them, nullable annotations and tuple
             // element names included, and neither is part of the CLR signature a library binds:
             // `Load(string?)` in one copy and `Load(string)` in the other are one signature. An older
-            // member whose key the newer copy lacks is compared with the newer copy's own keys of the
-            // same shape (KeyShape), a reading of the spelling so coarse that every spelling of one CLR
-            // signature shares it: it can only hold too many keys, never too few. Which of them stand for
-            // the older member's signature is read from the copies' assemblies (ClrSignatures), each key
-            // in its own copy: a candidate whose compiled signature differs from the older member's
-            // (`Load(string, int)` beside `Load(string, int?)`, or a binding's own `Int32` beside
-            // `System.Int32`) is another member and is not compared. A key either assembly does not
+            // member whose key the newer copy lacks is compared with the newer copy's own keys of its
+            // member name (MemberName), which every spelling of one CLR signature shares whatever it
+            // spells its parameters as (a generic parameter's name included): it can only hold too many
+            // keys, never too few. Which of them stand for the older member's signature is read from the
+            // copies' assemblies (ClrSignatures), each key in its own copy: a candidate whose compiled
+            // signature differs from the older member's (`Load(string, int)` beside `Load(string, int?)`,
+            // or a binding's own `Int32` beside `System.Int32`) is another member and is not compared. A key either assembly does not
             // resolve to one signature stays a candidate, and the name moved unless every candidate
             // keeps its declaration. An older signature the newer copy lost outright is refused by the
             // public API comparison.
             var @namespace = file[..^BindingsGeneration.SwiftDeclarationRecordFormat.FileSuffix.Length];
             var olderSignatures = new ClrSignatures(older, @namespace, before.Module, before.Types.Keys.ToHashSet(StringComparer.Ordinal));
             var newerSignatures = new ClrSignatures(newer, @namespace, after.Module, after.Types.Keys.ToHashSet(StringComparer.Ordinal));
-            var newerOnly = after.Members.Keys.Where(k => !before.Members.ContainsKey(k))
-                .ToLookup(KeyShape, StringComparer.Ordinal);
+            var newerOnly = after.Members.Keys.Where(k => !before.Members.ContainsKey(k)).ToLookup(MemberName, StringComparer.Ordinal);
             foreach (var (olderKey, was) in before.Members.Where(m => !after.Members.ContainsKey(m.Key)).OrderBy(m => m.Key, StringComparer.Ordinal))
             {
                 var signature = olderSignatures.Of(olderKey);
-                var candidates = newerOnly[KeyShape(olderKey)]
+                var candidates = newerOnly[MemberName(olderKey)]
                     .Where(k => signature is null || newerSignatures.Of(k) is not { } candidate || candidate == signature)
                     .OrderBy(k => k, StringComparer.Ordinal).ToList();
                 var others = candidates.Where(k => !string.Equals(after.Members[k], was, StringComparison.Ordinal)).ToList();
@@ -689,7 +688,9 @@ public static class SwiftBindingPackageMerge
     /// <c>lib/&lt;tfm&gt;/</c> assemblies declare them, each named in full (namespace, enclosing types,
     /// generic arity; <see cref="BindingsGeneration.SwiftDeclarationRecordKeys.Member.QualifiedParameters"/>)
     /// with <c>Nullable&lt;T&gt;</c> told apart from a nullable annotation, and the method's generic
-    /// arity. The key names the members it spells by simple names (<see cref="BindingsGeneration.SwiftDeclarationRecordKeys.AssemblyIndex.Resolve"/>)
+    /// arity. The key names the members it spells by simple names, whatever their generic arity
+    /// (<see cref="BindingsGeneration.SwiftDeclarationRecordKeys.AssemblyIndex.Spelled"/>: the key's
+    /// Swift arity also counts parameters the C# member does not declare, so it cannot tell which it is),
     /// whose full parameter types its own qualification can name (<see cref="BindingsGeneration.SwiftDeclarationRecordKeys.CanName"/>).
     /// Null for a key that does not resolve to exactly one signature (a property, a member no
     /// assembly of the copy declares in the record's namespace), which the comparison then treats as
@@ -712,7 +713,7 @@ public static class SwiftBindingPackageMerge
             string? signature = null;
             if (BindingsGeneration.SwiftDeclarationRecordKeys.Parse(key) is { Parameters: not null, QualifiedParameters: { } spelled } parsed)
             {
-                var signatures = _indexes.SelectMany(index => index.Resolve(parsed, module, swiftTypes)
+                var signatures = _indexes.SelectMany(index => index.Spelled(parsed, module, swiftTypes)
                         .Where(m => m.QualifiedParameters.Length == spelled.Length
                                     && spelled.Zip(m.QualifiedParameters).All(p => BindingsGeneration.SwiftDeclarationRecordKeys.CanName(
                                         p.First, p.Second, m.QualifiedParent, head => OwnNestedType(index, m, head)))))
@@ -735,7 +736,7 @@ public static class SwiftBindingPackageMerge
             var name = head.IndexOf('`') is var tick and >= 0 ? head[..tick] : head;
             return Requalified is { } requalified && !requalified.Contains(name) && name != @namespace.Split('.')[0]
                    && member.ParentPath.Length > 0 && swiftTypes.Contains(member.ParentPath + "." + name)
-                   && index.QualifiedTypes.Contains(member.QualifiedParent + "." + head);
+                   && index.QualifiedTypes.Contains(member.QualifiedParent + "+" + head);
         }
 
         private BindingsGeneration.SwiftDeclarationRecordKeys.AssemblyIndex Index(byte[] image)
@@ -784,19 +785,29 @@ public static class SwiftBindingPackageMerge
     }
 
     /// <summary>
-    /// The shape of a member key (<c>Parent.Name(T1,T2)</c> and an optional generic-arity suffix, or an
-    /// indexer's <c>Parent.this[T1]</c>) the merge buckets keys by: its declaring type, its name and
-    /// each parameter's canonical type (<see cref="BindingsGeneration.SwiftDeclarationRecordKeys.CanonicalParameter"/>:
-    /// a simple name, a C# keyword as its CLR name, tuple element names dropped) without its <c>?</c>
-    /// marks, and no generic-arity suffix. Two spellings of one CLR signature always share it, since
-    /// each spells, by simple name, the parameters the compiled member declares; it is deliberately
-    /// coarser than the signature, which the copies' assemblies decide (<see cref="ClrSignatures"/>). A
-    /// property key, and a key that does not read, is its own shape.
+    /// The C# member a key names, by its declaring type and name alone: the key's text ahead of its
+    /// parameter list (<c>Parent.Name</c>, an indexer's <c>Parent.this</c>, a property's whole key),
+    /// without generic argument lists. Every spelling of one CLR signature shares it, whatever it spells
+    /// its types as, and whether or not the rest of the key reads; which of the keys it buckets name
+    /// the same signature the copies' assemblies decide (<see cref="ClrSignatures"/>).
     /// </summary>
-    internal static string KeyShape(string key) =>
-        BindingsGeneration.SwiftDeclarationRecordKeys.Parse(key) is { Parameters: { } parameters } parsed
-            ? $"{parsed.ParentPath}|{parsed.Name}{(parsed.IsIndexer ? "[" : "(")}{string.Join(",", parameters.Select(p => p.Replace("?", "", StringComparison.Ordinal)))}"
-            : key;
+    internal static string MemberName(string key)
+    {
+        var name = new System.Text.StringBuilder();
+        var depth = 0;
+        foreach (var c in key)
+        {
+            if (depth == 0 && c is '(' or '[')
+                break;
+            if (c == '<')
+                depth++;
+            else if (c == '>')
+                depth = Math.Max(0, depth - 1);
+            else if (depth == 0)
+                name.Append(c);
+        }
+        return name.ToString();
+    }
 
     /// <summary>
     /// Every Swift declaration record a copy's assemblies name (<see cref="BindingsGeneration.SwiftDeclarationRecordFormat.AttributeKey"/>,

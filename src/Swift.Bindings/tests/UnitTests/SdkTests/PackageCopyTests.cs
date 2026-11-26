@@ -760,6 +760,70 @@ public sealed class PackageCopyTests : IDisposable
     }
 
     [Fact]
+    public void Merge_ATakeoverOfAMemberBesideAGenericNamesakeOfTheKeysSwiftArity_IsRefused()
+    {
+        // A key's `1 counts the Swift declaration's generic parameters, which the C# member need not
+        // declare: `Box.Load(string)`1` may be `Load(string)` as well as `Load<U>(string)`, so the newer
+        // copy's key is compared, and it gives `Load(string)` another declaration.
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: "namespace Kit { public class Box { public void Load(string? a) { } } }",
+            extra: [Declarations("net10.0-ios26.0", types: [("Box", "type Kit.Box")], members: [("Box.Load(string?)`1", "func Kit.Box.load(a:)")])]);
+        var newer = Contribution("x27", ["net10.0-ios27.2"], api: "namespace Kit { public class Box { public void Load(string b) { } public void Load<U>(string c) { } } }",
+            extra: [Declarations("net10.0-ios27.2", types: [("Box", "type Kit.Box")], members: [("Box.Load(string)`1", "func Kit.Box.load(b:)")])]);
+
+        var problem = Assert.Single(Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2").Problems);
+
+        Assert.Contains("the C# member Kit.Box.Load(string?)`1 is Swift `func Kit.Box.load(a:)` in net10.0-ios26.0 but Swift `func Kit.Box.load(b:)` in net10.0-ios27.2, as Kit.Box.Load(string)`1", problem);
+    }
+
+    [Fact]
+    public void Merge_ATakeoverOfAMemberTakingATypeNamedWithACombiningMark_IsRefused()
+    {
+        // `कि` is one C# identifier: a letter and a combining vowel sign.
+        const string api = "namespace Kit { public sealed class कि { } public static class Kit { public static void Load(कि a) { } } }";
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: api, extra: [Declarations("net10.0-ios26.0", types: [("Kit", "type Kit.Kit"), ("कि", "type Kit.कि")],
+            members: [("Kit.Load(कि?)", "static func Kit.Kit.load(a:)")])]);
+        var newer = Contribution("x27", ["net10.0-ios27.2"], api: api, extra: [Declarations("net10.0-ios27.2", types: [("Kit", "type Kit.Kit"), ("कि", "type Kit.कि")],
+            members: [("Kit.Load(कि)", "static func Kit.Kit.load(b:)")])]);
+
+        var problem = Assert.Single(Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2").Problems);
+
+        Assert.Contains("the C# member Kit.Kit.Load(कि?) is Swift `static func Kit.Kit.load(a:)` in net10.0-ios26.0 but Swift `static func Kit.Kit.load(b:)` in net10.0-ios27.2, as Kit.Kit.Load(कि)", problem);
+    }
+
+    [Fact]
+    public void Merge_AKeyThatDoesNotRead_IsComparedWithEveryNewerKeyOfItsMemberName()
+    {
+        const string api = "namespace Kit { public static class Kit { public static void Load(int a) { } } }";
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: api, extra: [Declarations("net10.0-ios26.0", types: [("Kit", "type Kit.Kit")],
+            members: [("Kit.Load(%)", "static func Kit.Kit.load(a:)")])]);
+        var newer = Contribution("x27", ["net10.0-ios27.2"], api: api, extra: [Declarations("net10.0-ios27.2", types: [("Kit", "type Kit.Kit")],
+            members: [("Kit.Load(int)", "static func Kit.Kit.load(b:)")])]);
+
+        var problem = Assert.Single(Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2").Problems);
+
+        Assert.Contains("the C# member Kit.Kit.Load(%) is Swift `static func Kit.Kit.load(a:)` in net10.0-ios26.0 but Swift `static func Kit.Kit.load(b:)` in net10.0-ios27.2, as Kit.Kit.Load(int)", problem);
+    }
+
+    [Fact]
+    public void Merge_ATakeoverOfAMemberTakingANestedTypeSpelledThroughADerivedType_IsRefused()
+    {
+        // `Deps.Child.Value` is `Deps.Base.Value`, which `Child` inherits, and not the unchanged
+        // overload's `Extra.Deps.Child.Value`, whose name it ends: the newer copy gives the first
+        // `Load` another declaration.
+        const string api = "namespace Deps { public class Base { public sealed class Value { } } public class Child : Base { } } "
+                           + "namespace Extra.Deps { public class Child { public sealed class Value { } } } "
+                           + "namespace Kit { public class Box { public void Load(global::Deps.Base.Value a) { } public void Load(Extra.Deps.Child.Value c) { } } }";
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: api, extra: [Declarations("net10.0-ios26.0", types: [("Box", "type Kit.Box")],
+            members: [("Box.Load(Deps.Base.Value?)", "func Kit.Box.load(a:)"), ("Box.Load(Extra.Deps.Child.Value)", "func Kit.Box.load(c:)")])]);
+        var newer = Contribution("x27", ["net10.0-ios27.2"], api: api, extra: [Declarations("net10.0-ios27.2", types: [("Box", "type Kit.Box")],
+            members: [("Box.Load(Deps.Child.Value)", "func Kit.Box.load(b:)"), ("Box.Load(Extra.Deps.Child.Value)", "func Kit.Box.load(c:)")])]);
+
+        var problem = Assert.Single(Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2").Problems);
+
+        Assert.Contains("the C# member Kit.Box.Load(Deps.Base.Value?) is Swift `func Kit.Box.load(a:)` in net10.0-ios26.0 but Swift `func Kit.Box.load(b:)` in net10.0-ios27.2, as Kit.Box.Load(Deps.Child.Value)", problem);
+    }
+
+    [Fact]
     public void Merge_ARelativeSystemNameThatIsTheBindingsOwnNestedType_IsNotTheBaseClassLibraryType()
     {
         // The newer copy respells `Load(string?)` as `Load(string)` and adds `Load(System.String)`,
@@ -814,21 +878,27 @@ public sealed class PackageCopyTests : IDisposable
     [InlineData("Kit.Load(string?,(int a, int b))", "Kit.Load(String,ValueTuple<int,int>)")]
     [InlineData("Kit.Load(Int32)", "Kit.Load(Kit.Int32?)")]
     [InlineData("Kit.Load(Other.Value)", "Kit.Load(global::Other.Value)")]
-    [InlineData("Kit.Load(T)`1", "Kit.Load(T)`2")]
+    [InlineData("Kit.Load(T)`1", "Kit.Load(TValue)`2")]
+    [InlineData("Box<T>.Load(T)", "Box<TValue>.Load(TValue)")]
     [InlineData("Kit.this[string?]", "Kit.this[String]")]
-    public void KeyShape_EverySpellingThatCanNameOneSignature_SharesAShape(string key, string other) =>
-        // The shape only buckets keys: a binding's `Int32` and `System.Int32` share one, and the copies'
-        // assemblies tell them apart.
-        Assert.Equal(SwiftBindingPackageMerge.KeyShape(key), SwiftBindingPackageMerge.KeyShape(other));
+    [InlineData("Kit.Load(%)", "Kit.Load(int)")]
+    public void MemberName_EverySpellingThatCanNameOneSignature_SharesIt(string key, string other) =>
+        // The member name only buckets keys: the copies' assemblies tell their signatures apart.
+        Assert.Equal(SwiftBindingPackageMerge.MemberName(key), SwiftBindingPackageMerge.MemberName(other));
 
-    [Theory]
-    [InlineData("Kit.Load(int)", "Kit.Load(long)")]
-    [InlineData("Kit.this[int]", "Kit.Item(int)")]
-    [InlineData("Kit.Load(int)", "Kit.Load(int,int)")]
-    [InlineData("Kit.Load(Int32)", "Kit.Load(Int32<T>)")]
-    [InlineData("Kit.Load(int)", "Box.Load(int)")]
-    public void KeyShape_KeysThatCannotNameOneSignature_HaveTwoShapes(string key, string other) =>
-        Assert.NotEqual(SwiftBindingPackageMerge.KeyShape(key), SwiftBindingPackageMerge.KeyShape(other));
+    [Fact]
+    public void Merge_ATakeoverOfAGenericMethodWhoseGenericParameterIsRenamed_IsRefused()
+    {
+        // `Load<T>(T)` and `Load<TValue>(TValue)` are one CLR signature, `Load<!!0>(!!0)`.
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: "namespace Kit { public class Box { public void Load<T>(T a) { } } }",
+            extra: [Declarations("net10.0-ios26.0", types: [("Box", "type Kit.Box")], members: [("Box.Load(T)`1", "func Kit.Box.load(a:)")])]);
+        var newer = Contribution("x27", ["net10.0-ios27.2"], api: "namespace Kit { public class Box { public void Load<TValue>(TValue b) { } } }",
+            extra: [Declarations("net10.0-ios27.2", types: [("Box", "type Kit.Box")], members: [("Box.Load(TValue)`1", "func Kit.Box.load(b:)")])]);
+
+        var problem = Assert.Single(Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2").Problems);
+
+        Assert.Contains("the C# member Kit.Box.Load(T)`1 is Swift `func Kit.Box.load(a:)` in net10.0-ios26.0 but Swift `func Kit.Box.load(b:)` in net10.0-ios27.2, as Kit.Box.Load(TValue)`1", problem);
+    }
 
     [Fact]
     public void Merge_ARespellOfAnIndexerAndANestedNullableTheAssembliesResolve_Merges()
