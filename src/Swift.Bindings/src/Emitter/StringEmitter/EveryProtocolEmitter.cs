@@ -3446,7 +3446,7 @@ public class EveryProtocolEmitter
             && TryBuildObjCPointerInput(property.SwiftTypeSpec, "newValue", "newValue", out var containerLines))
         {
             // A container of Objective-C-bridgeable elements crosses as the collection it bridges
-            // to, handed over at +1; see TryBuildObjCPointerInput.
+            // to, lent at +0 for the call; see TryBuildObjCPointerInput.
             writer.WriteLine($"var selfProto: {protoName} = self");
             foreach (var line in containerLines)
                 writer.WriteLine(line);
@@ -4733,7 +4733,7 @@ public class EveryProtocolEmitter
                 && TryBuildObjCPointerInput(param.SwiftTypeSpec, paramName, escapedParam, out var containerLines))
             {
                 // A container of Objective-C-bridgeable elements crosses as the collection it bridges
-                // to, handed over at +1; see TryBuildObjCPointerInput. An `inout` one never gets here
+                // to, lent at +0 for the call; see TryBuildObjCPointerInput. An `inout` one never gets here
                 // (MethodHasInOutParamWithoutWriteBack traps it), so the write-back source is unused.
                 argPassList.AddRange(containerLines);
                 argRefList.Add($"&{paramName}Ref");
@@ -5331,8 +5331,8 @@ public class EveryProtocolEmitter
             else if (IsObjCBridgedContainerInput(param.SwiftTypeSpec)
                 && TryBuildObjCPointerInput(param.SwiftTypeSpec, paramName, escapedParam, out var containerLines))
             {
-                // Objective-C-bridgeable container beside a dispatchable closure: the same +1
-                // collection pointer as the non-closure fan-out; see TryBuildObjCPointerInput.
+                // Objective-C-bridgeable container beside a dispatchable closure: the same collection
+                // pointer, lent at +0, as the non-closure fan-out; see TryBuildObjCPointerInput.
                 passLines.AddRange(containerLines);
                 argRefList.Add($"&{paramName}Ref");
             }
