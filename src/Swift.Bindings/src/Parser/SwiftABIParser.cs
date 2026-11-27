@@ -2276,6 +2276,7 @@ namespace BindingsGeneration
                 ModuleDecl = moduleDecl,
                 IsFrozen = hasFrozenAttribute,
                 IsObjC = node.DeclAttributes is not null && Array.IndexOf(node.DeclAttributes, "ObjC") != -1,
+                IsIndirect = node.DeclAttributes is not null && Array.IndexOf(node.DeclAttributes, "Indirect") != -1,
                 HasCustomAlignment = node.DeclAttributes is not null && Array.IndexOf(node.DeclAttributes, "Alignment") != -1,
                 MetadataAccessor = ResolveMetadataAccessor(node, swiftTypeName, moduleDecl),
                 RawValueTypeName = node.EnumRawTypeName,
@@ -2316,6 +2317,7 @@ namespace BindingsGeneration
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
                 IsSpiProtected = IsNodeSpiProtected(node),
+                IsIndirect = node.DeclAttributes is not null && Array.IndexOf(node.DeclAttributes, "Indirect") != -1,
             };
             PopulateDocumentation(enumCaseDecl, node);
 

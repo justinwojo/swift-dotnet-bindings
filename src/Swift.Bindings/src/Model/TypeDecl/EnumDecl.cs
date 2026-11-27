@@ -75,6 +75,13 @@ namespace BindingsGeneration
         /// The labeled counterpart is carried by <see cref="OuterTupleLabel"/> instead.
         /// </summary>
         public bool IsSingleTuplePayload { get; set; }
+
+        /// <summary>
+        /// Whether the case is declared <c>indirect</c>, so its payload lives in a heap box and the
+        /// enum stores only the box reference. <see cref="EnumDecl.IsIndirect"/> covers every case of
+        /// an enum declared <c>indirect</c> as a whole.
+        /// </summary>
+        public bool IsIndirect { get; set; }
     }
 
     /// <summary>
@@ -103,6 +110,12 @@ namespace BindingsGeneration
         /// <c>@frozen</c>.
         /// </summary>
         public bool IsObjC { get; set; }
+
+        /// <summary>
+        /// Whether the enum is declared <c>indirect</c>, which boxes every case's payload: the enum
+        /// stores box references, never a payload inline.
+        /// </summary>
+        public bool IsIndirect { get; set; }
 
         /// <summary>
         /// Whether the enum raises its own alignment past what its payloads require (Swift's

@@ -33,11 +33,12 @@ namespace BindingsGeneration
         private readonly HashSet<string> _processingInProgress = new(StringComparer.Ordinal);
 
         /// <summary>
-        /// Whether each processed struct was declared <c>@frozen</c>. Processing overwrites
-        /// <see cref="StructDecl.IsFrozen"/> with the record's flag, which also folds in projection
-        /// policy, so the client-layout check reads the declaration from here once it has.
+        /// Whether each processed struct or enum was declared <c>@frozen</c>. Processing overwrites
+        /// <see cref="StructDecl.IsFrozen"/> and <see cref="EnumDecl.IsFrozen"/> with the record's
+        /// flag, which says whether the value is loadable to clients, so the client-layout walk reads
+        /// the declaration from here once it has.
         /// </summary>
-        private readonly Dictionary<StructDecl, bool> _declaredFrozen = new(ReferenceEqualityComparer.Instance);
+        private readonly Dictionary<TypeDecl, bool> _declaredFrozen = new(ReferenceEqualityComparer.Instance);
 
         private SwiftLayoutResolver? _foreignLayout;
 
@@ -346,11 +347,12 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Determines whether a struct is truly frozen. The struct itself must be marked frozen
-        /// and all of its properties must also be from frozen types.
+        /// Computes a struct's record flags. <see cref="TypeRecordFlags.Frozen"/> means loadable to
+        /// clients: the struct is marked frozen and nothing it stores inline is address-only to them.
+        /// Only stored instance properties count; a computed or static property stores nothing.
         /// </summary>
         /// <param name="structDecl">The struct declaration.</param>
-        /// <returns><c>true</c> if the struct is frozen; otherwise, <c>false</c>.</returns>
+        /// <returns>The struct's record flags.</returns>
         private TypeRecordFlags CacluateFlags(StructDecl structDecl)
         {
             TypeRecordFlags flags = TypeRecordFlags.None;
@@ -368,15 +370,21 @@ namespace BindingsGeneration
             if (structDecl.IsFrozen)
                 flags |= TypeRecordFlags.Frozen;
 
-            var resilienceWalk = new HashSet<string>(StringComparer.Ordinal);
+            var layoutWalk = new HashSet<string>(StringComparer.Ordinal);
             foreach (var propertyDecl in structDecl.Properties)
             {
-                // A stored field whose layout is resilient to clients leaves the struct's own layout
-                // unknown to them, `@frozen` or not, so Swift passes and returns the whole struct
-                // through memory. Checked ahead of the NamedTypeSpec narrowing below, which would drop
-                // a tuple field whole.
-                if (!propertyDecl.IsStatic && propertyDecl.HasStorage
-                    && StoresClientResilientValue(propertyDecl.SwiftTypeSpec, bound: null, resilienceWalk))
+                // Only stored fields sit in the value, so only they decide whether its layout is
+                // fixed to clients and whether Swift passes it in registers. The ABI descriptor
+                // marks storage on a `let`, an observed `var`, a `lazy` property's hidden Optional
+                // and a property wrapper's backing field, and never on a computed property or a
+                // static one, which lives outside the value.
+                bool stored = !propertyDecl.IsStatic && propertyDecl.HasStorage;
+
+                // A stored field Swift moves through memory leaves the whole struct moving through
+                // memory to its clients, `@frozen` or not. Checked ahead of the NamedTypeSpec
+                // narrowing below, which would drop a tuple or composition field whole.
+                if (stored && (OwnershipMovesFieldThroughMemory(propertyDecl)
+                        || StoresClientAddressOnlyValue(propertyDecl.SwiftTypeSpec, bound: null, layoutWalk)))
                     flags &= ~TypeRecordFlags.Frozen;
 
                 if (propertyDecl.SwiftTypeSpec is not NamedTypeSpec namedPropertyType)
@@ -384,23 +392,33 @@ namespace BindingsGeneration
 
                 // For generic frozen structs the inline-carrier decision must follow stored
                 // bytes only: a computed Bool/String result does not make the parent
-                // reference-bearing. Preserve the established non-generic projection policy;
-                // changing those existing public struct/class shapes is a separate migration.
+                // reference-bearing. Preserve the established non-generic projection policy for
+                // the memory-management and float/bool flags, which only route members more
+                // conservatively; changing those existing public shapes is a separate migration.
                 if (propertyDecl.IsStatic || (structDecl.IsGeneric && !propertyDecl.HasStorage))
                     continue;
+
+                // The walk above has the last word on a stored field whose layout it can place: a
+                // type this module declares, specialized or not, a metatype, or one the layout
+                // resolver knows. Only a field it cannot place falls back to the record test below.
+                // A generic declaration's record says nothing about one specialization, and a
+                // metatype has no record at all, though each is loadable when its layout is.
+                bool layoutPlaced = stored && StoredLayoutIsPlaced(namedPropertyType);
 
                 if (!TryGetTypeRecord(namedPropertyType, out var propertyRecord))
                 {
                     // Generic types (e.g., Swift.KeyPath<T, V>) may not be registered in the type database.
-                    // Treat as non-frozen and requiring memory management to be safe.
+                    // Treat a stored one as non-frozen, and any one as requiring memory management, to be safe.
                     _logger.LogWarning($"Type not found in the database: {namedPropertyType}. Assuming non-frozen.");
-                    flags &= ~TypeRecordFlags.Frozen;
+                    if (stored && !layoutPlaced)
+                        flags &= ~TypeRecordFlags.Frozen;
                     flags |= TypeRecordFlags.RequiresMemoryManagement;
                     continue;
                 }
 
-                // If any property is not frozen struct, remove the frozen flag
-                if (propertyRecord.Kind == TypeRecordKind.Struct && (propertyRecord.Flags & TypeRecordFlags.Frozen) == 0)
+                // A stored struct field another module's record says is not frozen.
+                if (stored && !layoutPlaced
+                    && propertyRecord.Kind == TypeRecordKind.Struct && (propertyRecord.Flags & TypeRecordFlags.Frozen) == 0)
                     flags &= ~TypeRecordFlags.Frozen;
 
                 // If any property is heap-allocated, set the RequiresMemoryManagement flag
@@ -435,64 +453,77 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// True when <paramref name="spec"/>, stored inline in a struct, holds a value type whose
-        /// layout is resilient to clients: a non-frozen enum or struct, directly, as an Optional's
-        /// payload or as a tuple element, each of which a struct stores inline.
+        /// True when <paramref name="spec"/>, stored inline in a struct or an enum payload, holds a
+        /// value Swift moves through memory, never in registers, between a library and its clients:
+        /// a value type whose layout is resilient to them (a non-frozen enum or struct), or an
+        /// address-only existential (<c>Any</c>, or <c>any P</c> for a <c>P</c> not bound to classes).
+        /// Each counts directly, as an Optional's payload or as a tuple element.
         ///
         /// <para>
-        /// Under library evolution a client cannot know such a type's size, so a struct storing one
-        /// is address-only to it even when the struct itself is <c>@frozen</c>: Swift returns it
-        /// through the indirect-result register and takes it as an argument by address. A struct
-        /// left frozen here would be returned in registers by a direct call or a tail-call thunk,
-        /// and Swift would write the result through whatever the indirect-result register held.
+        /// Under library evolution a client cannot know a resilient type's size, and an opaque
+        /// existential's inline buffer may hold a value only its own witnesses can move, so a struct or
+        /// enum storing either is address-only to clients even when it is <c>@frozen</c>: Swift returns
+        /// it through the indirect-result register and takes it as an argument by address. One left
+        /// frozen here would be returned in registers by a direct call or a tail-call thunk, and Swift
+        /// would write the result through whatever the indirect-result register held. A class-bound
+        /// existential (a reference and its witness tables), an <c>Error</c> existential (one boxed
+        /// reference) and an existential metatype are loadable, and so is a payload an
+        /// <c>indirect</c> case keeps in a heap box.
         /// </para>
         ///
         /// <para>
         /// A type this module declares, including one nested in its extension of another module's
         /// type, is answered from its declaration, whatever the processing order and whatever its
-        /// record says: a struct's record flag also carries projection policy
-        /// (a computed property can clear it), which says nothing about the stored layout. A struct is
-        /// resilient when it is not declared <c>@frozen</c> or stores something that is; a generic
-        /// parameter it stores is as resilient as the argument bound to it, so an argument it never
-        /// stores does not count. An <c>@objc</c> enum is a C enum, stored as its raw value whether or
-        /// not it is <c>@frozen</c>. Another module's type, including one this module only extends, is
-        /// answered by the layout resolver, which knows the standard library's and the SDK's fixed
-        /// representations and otherwise reads the record its own module's processing wrote. A type
-        /// it cannot place is not answered here.
+        /// record says, since one still being processed has no final record yet. A struct is
+        /// address-only when it is not declared <c>@frozen</c> or stores something that is; a frozen
+        /// enum when a case stores something that is inline; a generic parameter either stores is as
+        /// address-only as the argument bound to it, so an argument it never stores does not count. An
+        /// <c>@objc</c> enum is a C enum, stored as its raw value whether or not it is <c>@frozen</c>.
+        /// Another module's type, including one this module only extends, is answered by the layout
+        /// resolver, which knows the standard library's and the SDK's fixed representations and
+        /// otherwise reads the record its own module's processing wrote. A type it cannot place is not
+        /// answered here.
         /// </para>
         /// </summary>
         /// <param name="bound">
-        /// Whether each generic parameter of the struct being walked is bound to a resilient argument.
+        /// Whether each generic parameter of the declaration being walked is bound to an address-only
+        /// argument.
         /// </param>
         /// <param name="visiting">The specializations being walked, so a cycle ends.</param>
-        private bool StoresClientResilientValue(TypeSpec? spec, IReadOnlyDictionary<string, bool>? bound, HashSet<string> visiting)
+        private bool StoresClientAddressOnlyValue(TypeSpec? spec, IReadOnlyDictionary<string, bool>? bound, HashSet<string> visiting)
         {
             switch (spec)
             {
                 case TupleTypeSpec tuple:
-                    return tuple.Elements.Any(element => StoresClientResilientValue(element, bound, visiting));
+                    return tuple.Elements.Any(element => StoresClientAddressOnlyValue(element, bound, visiting));
+
+                case ProtocolListTypeSpec composition:
+                    // `Any`, `any P & Q`, or an opaque `some P`, whose concrete type the client never sees.
+                    return composition.IsOpaque || IsAddressOnlyComposition(composition);
 
                 case NamedTypeSpec named:
                     if (named.Name == "Swift.Optional" && named.GenericParameters.Count == 1 && named.InnerType is null)
-                        return StoresClientResilientValue(named.GenericParameters[0], bound, visiting);
-                    if (named.IsAny)
-                        return false;
+                        return StoresClientAddressOnlyValue(named.GenericParameters[0], bound, visiting);
                     if (!named.HasModule())
                         return named.GenericParameters.Count == 0 && named.InnerType is null
-                            && bound is not null && bound.TryGetValue(named.Name, out var boundResilient) && boundResilient;
-                    // A type nested in another, an extension's receiver included, belongs to the module
-                    // whose declarations hold it; a top-level declaration another module names is a
-                    // receiver this module only extends.
-                    if (_typeDecls.TryGetValue(DeclLookupKey(named), out var localDecl)
-                        && (localDecl.ParentDecl is TypeDecl
-                            || string.Equals(localDecl.SwiftTypeName.Module, _module, StringComparison.Ordinal)))
+                            && bound is not null && bound.TryGetValue(named.Name, out var boundAddressOnly) && boundAddressOnly;
+                    if (TryGetOwnDeclaration(named, out var localDecl))
                     {
                         switch (localDecl)
                         {
                             case EnumDecl localEnum:
-                                return !localEnum.IsFrozen && !localEnum.IsObjC;
+                                if (localEnum.IsObjC)
+                                    return false;
+                                if (!DeclaredFrozen(localEnum, localEnum.IsFrozen))
+                                    return true;
+                                return DeclarationStoresClientAddressOnlyValue(localEnum, named, bound, visiting);
                             case StructDecl localStruct:
-                                return StructStoresClientResilientValue(localStruct, named, bound, visiting);
+                                if (!DeclaredFrozen(localStruct, localStruct.IsFrozen))
+                                    return true;
+                                return DeclarationStoresClientAddressOnlyValue(localStruct, named, bound, visiting);
+                            case ProtocolDecl localProtocol:
+                                // A stored protocol type is its existential, `any` spelled or not.
+                                return !IsClassBound(localProtocol);
                             default:
                                 return false;
                         }
@@ -509,17 +540,150 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Whether <paramref name="use"/>, a specialization of a struct this module declares, stores a
-        /// value resilient to clients. Each generic parameter is bound to whether its argument is, the
-        /// arguments of every segment of <paramref name="use"/> in order, outermost first, the order of
-        /// the declaration's own signature.
+        /// The declaration this module holds for <paramref name="named"/>. A type nested in another, an
+        /// extension's receiver included, belongs to the module whose declarations hold it; a top-level
+        /// declaration another module names is a receiver this module only extends.
         /// </summary>
-        private bool StructStoresClientResilientValue(StructDecl decl, NamedTypeSpec use,
+        private bool TryGetOwnDeclaration(NamedTypeSpec named, [NotNullWhen(true)] out TypeDecl? decl)
+            => _typeDecls.TryGetValue(DeclLookupKey(named), out decl)
+               && (decl.ParentDecl is TypeDecl
+                   || string.Equals(decl.SwiftTypeName.Module, _module, StringComparison.Ordinal));
+
+        /// <summary>
+        /// Whether <see cref="StoresClientAddressOnlyValue"/> places a stored field of this type, as
+        /// address-only or as loadable: a type this module declares, a metatype (no storage, the
+        /// metadata, or the metadata and witness tables, but never through memory), or a type the
+        /// layout resolver lays out.
+        /// </summary>
+        private bool StoredLayoutIsPlaced(NamedTypeSpec named)
+        {
+            if (!named.HasModule())
+                return false;
+            if (TryGetOwnDeclaration(named, out _))
+                return true;
+            var name = DeclLookupKey(named).Name;
+            if ((name.EndsWith(".Type", StringComparison.Ordinal) || name.EndsWith(".Protocol", StringComparison.Ordinal))
+                && !_typeDecls.ContainsKey(new NamedTypeSpec(name)) && !TryGetTypeRecord(named, out _))
+                return true;
+            _foreignLayout ??= new SwiftLayoutResolver(Array.Empty<ModuleDecl>(), _typeDatabase);
+            var layout = _foreignLayout.Resolve(named);
+            return layout.Layout is not null || layout.IsIndirect;
+        }
+
+        /// <summary>
+        /// Whether a stored property's reference ownership alone moves the struct through memory.
+        /// The runtime tracks a <c>weak</c> reference by its address, so it is never loadable. An
+        /// <c>unowned</c> one is loadable only to a native Swift class; to an Objective-C class, an
+        /// <c>AnyObject</c> or a class-bound existential it is tracked the same way as a weak one. An
+        /// <c>unowned(unsafe)</c> reference is a plain pointer. Another module's class counts as native
+        /// when its record is a class not rooted in Objective-C.
+        /// </summary>
+        private bool OwnershipMovesFieldThroughMemory(PropertyDecl property)
+        {
+            switch (property.ReferenceOwnership)
+            {
+                case SwiftReferenceOwnership.Weak:
+                    return true;
+                case SwiftReferenceOwnership.Unowned:
+                    var referent = property.SwiftTypeSpec is NamedTypeSpec { Name: "Swift.Optional", GenericParameters.Count: 1 } optional
+                        ? optional.GenericParameters[0]
+                        : property.SwiftTypeSpec;
+                    if (referent is not NamedTypeSpec { IsAny: false } named || !named.HasModule())
+                        return true;
+                    if (TryGetOwnDeclaration(named, out var decl))
+                        return decl is not ClassDecl referentClass || !IsNativeSwiftClass(referentClass);
+                    return !IsNativeSwiftClassRecord(named);
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// Whether a class this module declares is a native Swift class: its whole superclass chain is
+        /// this module's, with no Objective-C class at the root. Read from the declarations, since the
+        /// hierarchy pass that marks Objective-C roots runs after the value types are processed.
+        /// </summary>
+        private bool IsNativeSwiftClass(ClassDecl classDecl)
+        {
+            if (classDecl.HasObjCSuperclass)
+                return false;
+            foreach (var superclassName in classDecl.SuperclassNames)
+            {
+                var superclassSpec = new NamedTypeSpec(superclassName);
+                if (_typeDecls.TryGetValue(superclassSpec, out var superclass))
+                {
+                    if (superclass is not ClassDecl { HasObjCSuperclass: false })
+                        return false;
+                }
+                else if (!IsNativeSwiftClassRecord(superclassSpec))
+                    return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Whether another module's record describes a native Swift class: a class neither rooted in
+        /// nor bridged from Objective-C, and not one of the SDK's Objective-C classes.
+        /// </summary>
+        private bool IsNativeSwiftClassRecord(NamedTypeSpec named)
+            => TryGetTypeRecord(named, out var record)
+               && record.Kind == TypeRecordKind.Class
+               && (record.Flags & (TypeRecordFlags.ObjCRooted | TypeRecordFlags.ObjCBridged)) == 0
+               && !TypeDatabaseExtensions.IsObjCClassSwiftType(SwiftTypeName.FromTypeSpec(named));
+
+        /// <summary>Whether a struct or enum was declared <c>@frozen</c>, before processing overwrote its flag.</summary>
+        private bool DeclaredFrozen(TypeDecl decl, bool current) =>
+            _declaredFrozen.TryGetValue(decl, out var declared) ? declared : current;
+
+        /// <summary>
+        /// Whether a composition is an opaque existential: none of its members binds it to classes
+        /// (<c>AnyObject</c>, a class, or a class-bound protocol). <c>Any</c> has no members. A member
+        /// with neither a declaration nor a record, nor a place among the SDK protocols known to bind
+        /// to classes, is taken as unbound.
+        /// </summary>
+        private bool IsAddressOnlyComposition(ProtocolListTypeSpec composition)
+        {
+            foreach (var member in composition.Protocols.Keys)
+            {
+                var name = SwiftLayoutResolver.FullNameOf(member);
+                if (name is "AnyObject" or "Swift.AnyObject")
+                    return false;
+                if (_typeDecls.TryGetValue(DeclLookupKey(member), out var memberDecl))
+                {
+                    if (memberDecl is ProtocolDecl memberProtocol && !IsClassBound(memberProtocol))
+                        continue;
+                    return false;
+                }
+                if (AppleFrameworkRegistry.IsKnownClassBoundProtocol(name))
+                    return false;
+                if (!TryGetTypeRecord(member, out var memberRecord))
+                    continue;
+                if (memberRecord.Kind != TypeRecordKind.Protocol
+                    || (memberRecord.Flags & (TypeRecordFlags.ClassBound | TypeRecordFlags.ObjCProtocol)) != 0)
+                    return false;
+            }
+            return true;
+        }
+
+        /// <summary>Whether a protocol this module declares is bound to classes, directly or by refinement.</summary>
+        private bool IsClassBound(ProtocolDecl protocol) => SwiftProtocolBounds.IsClassBound(
+            protocol,
+            name => _typeDecls.TryGetValue(new NamedTypeSpec(name), out var decl) ? decl as ProtocolDecl : null,
+            name => TryGetTypeRecord(new NamedTypeSpec(name), out var record) && record.Kind == TypeRecordKind.Protocol
+                ? (record.Flags & TypeRecordFlags.ClassBound) != 0
+                : null);
+
+        /// <summary>
+        /// Whether <paramref name="use"/>, a specialization of a frozen struct or enum this module
+        /// declares, stores an address-only value inline: in a struct's stored properties, or in the
+        /// payload of an enum case that is not <c>indirect</c>. Each generic parameter is bound to
+        /// whether its argument is address-only, the arguments of every segment of
+        /// <paramref name="use"/> in order, outermost first, the order of the declaration's own
+        /// signature.
+        /// </summary>
+        private bool DeclarationStoresClientAddressOnlyValue(TypeDecl decl, NamedTypeSpec use,
             IReadOnlyDictionary<string, bool>? bound, HashSet<string> visiting)
         {
-            if (!(_declaredFrozen.TryGetValue(decl, out var declaredFrozen) ? declaredFrozen : decl.IsFrozen))
-                return true;
-
             var arguments = new List<TypeSpec>();
             for (var segment = use; segment is not null; segment = segment.InnerType)
                 arguments.AddRange(segment.GenericParameters);
@@ -529,7 +693,7 @@ namespace BindingsGeneration
             {
                 binding = new Dictionary<string, bool>(StringComparer.Ordinal);
                 for (int i = 0; i < parameters.Count; i++)
-                    binding[parameters[i]] = StoresClientResilientValue(arguments[i], bound, visiting);
+                    binding[parameters[i]] = StoresClientAddressOnlyValue(arguments[i], bound, visiting);
             }
 
             // A specialization already on the walk is being judged by the frame that put it there.
@@ -539,14 +703,29 @@ namespace BindingsGeneration
                 return false;
             try
             {
-                return decl.Properties.Any(p => !p.IsStatic && p.HasStorage
-                    && StoresClientResilientValue(p.SwiftTypeSpec, binding, visiting));
+                return (decl is StructDecl storedIn && storedIn.Properties.Any(p => !p.IsStatic && p.HasStorage && OwnershipMovesFieldThroughMemory(p)))
+                       || InlineStorage(decl).Any(stored => StoresClientAddressOnlyValue(stored, binding, visiting));
             }
             finally
             {
                 visiting.Remove(key);
             }
         }
+
+        /// <summary>
+        /// The types a struct or enum stores inline: a struct's stored instance properties, an enum's
+        /// payloads outside an <c>indirect</c> case or enum, which keep theirs in a heap box.
+        /// </summary>
+        private static IEnumerable<TypeSpec> InlineStorage(TypeDecl decl) => decl switch
+        {
+            StructDecl structDecl => structDecl.Properties
+                .Where(p => !p.IsStatic && p.HasStorage)
+                .Select(p => p.SwiftTypeSpec),
+            EnumDecl { IsIndirect: false } enumDecl => enumDecl.Cases
+                .Where(c => !c.IsIndirect)
+                .SelectMany(c => c.AssociatedValues),
+            _ => Enumerable.Empty<TypeSpec>(),
+        };
 
         /// <summary>
         /// Resolves the C# namespace-owning module for a parsed type. Normally this is the type's
@@ -1233,6 +1412,10 @@ namespace BindingsGeneration
 
             if (!enumDecl.IsSpiProtected)
                 RegisterEnumType(namedTypeSpec, enumDecl, swiftTypeInfo, flags);
+
+            // As for a struct: later passes read whether the enum is loadable to clients.
+            _declaredFrozen.TryAdd(enumDecl, enumDecl.IsFrozen);
+            enumDecl.IsFrozen = (flags & TypeRecordFlags.Frozen) != 0;
         }
 
         /// <summary>
@@ -1256,7 +1439,11 @@ namespace BindingsGeneration
                 !enumDecl.Conformances.Any(c => c.Protocol.ToString() == "Swift.Copyable"))
                 flags |= TypeRecordFlags.NonCopyable;
 
-            if (enumDecl.IsFrozen)
+            // A frozen enum whose payload, stored inline, is address-only to clients is address-only
+            // itself: Swift passes and returns it through memory, as it does a struct storing one.
+            if (enumDecl.IsFrozen
+                && (enumDecl.IsObjC || !DeclarationStoresClientAddressOnlyValue(enumDecl, new NamedTypeSpec(enumDecl.SwiftTypeName.ModuleQualifiedName),
+                    bound: null, new HashSet<string>(StringComparer.Ordinal))))
                 flags |= TypeRecordFlags.Frozen;
 
             // Enums with associated values may require memory management
