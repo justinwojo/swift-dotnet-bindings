@@ -17,7 +17,7 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "ObsoleteSB0001",
       "reason": "No @_cdecl wrapper or native thunk available (the method declares its own generic parameters, which have no C-callable ABI). P/Invoke calling convention may not match Swift ABI",
-      "count": 5
+      "count": 8
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
@@ -934,12 +934,6 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method \u0027describeRangeHolder\u0027 \u2014 signature names a type this binding does not emit (Method signature references \u0027SwiftBindingsTestLib.RangeHolder\u0027, a type this binding does not emit (see that type\u0027s own skip row) in \u0027SwiftBindingsTestLib.RangeHolder\u0027.)",
-      "count": 1
-    },
-    {
-      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
-      "marker": "Unsupported",
       "reason": "method \u0027getType\u0027 \u2014 parameter or return type not yet supported (unsupported placeholder type)",
       "count": 1
     },
@@ -1528,6 +1522,18 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
+      "reason": "property \u0027StoredLayoutLazyCell.projected__lazy_storage_$_detail\u0027 \u2014 ModuleInternal (Internal property suppressed from bindings.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027StoredLayoutRefPairHolder.pair\u0027 \u2014 ModuleInternal (Internal property suppressed from bindings.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
       "reason": "property \u0027StreamTasks.Watcher.continuation\u0027 \u2014 type could not be resolved to a concrete projection (Property type resolved to AnyType (Swift.SwiftOptional\u003CSwift.AnyType\u003E).)",
       "count": 1
     },
@@ -1805,12 +1811,6 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
       "reason": "type \u0027PlayerStyleView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
-      "count": 1
-    },
-    {
-      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
-      "marker": "Unsupported",
-      "reason": "type \u0027RangeHolder\u0027 \u2014 frozen struct stored field has an indeterminate cross-compile Buffer layout (generic value-type instantiation) (stored property has a generic value-type layout whose per-instantiation size is not derivable cross-compile (e.g. ClosedRange\u003CBound\u003E, Result\u003CSuccess,Failure\u003E); a blitted Buffer would mis-size the field.)",
       "count": 1
     },
     {
