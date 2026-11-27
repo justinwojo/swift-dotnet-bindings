@@ -196,14 +196,26 @@ public class FrozenStoredLayoutTests : TestBase
         AssertEqual(baseline, StoredLayoutTrackedRef.LiveCount, "disposing the value releases the object it held");
 
         var item = new StoredLayoutTrackedRef(6);
+        var replacement = new StoredLayoutTrackedRef(7);
         using (var fromCSharp = new StoredLayoutObjectHolder(item, 2))
         {
             AssertTrue(TestLibFunctions.StoredLayoutObjectHolderHolds(fromCSharp, item), "Swift sees the very object C# stored");
             AssertEqual("6/2", TestLibFunctions.StoredLayoutObjectHolderName(fromCSharp), "Swift reads a C#-built value");
             fromCSharp.Count = 3;
             AssertEqual("6/3", TestLibFunctions.StoredLayoutObjectHolderName(fromCSharp), "a C# write lands in the field Swift reads");
+
+            // The reference field through its own accessors: the getter returns the stored object,
+            // and a write replaces it, releasing the old reference and retaining the new one.
+            object read = fromCSharp.Object;
+            AssertTrue(TestLibFunctions.AnyObjectLaneSame(read, item), "the field getter returns the very object stored");
+            (read as IDisposable)?.Dispose();
+            fromCSharp.Object = replacement;
+            AssertTrue(TestLibFunctions.StoredLayoutObjectHolderHolds(fromCSharp, replacement), "a C# write of the reference lands in the field Swift reads");
+            AssertEqual("7/3", TestLibFunctions.StoredLayoutObjectHolderName(fromCSharp), "Swift reads the replaced reference");
+            item.Dispose();
+            AssertEqual(baseline + 1, StoredLayoutTrackedRef.LiveCount, "the write released the reference it replaced");
         }
-        item.Dispose();
+        replacement.Dispose();
         AssertEqual(baseline, StoredLayoutTrackedRef.LiveCount, "the C#-built value released the object it retained");
     }
 

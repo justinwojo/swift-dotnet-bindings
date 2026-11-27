@@ -322,10 +322,9 @@ public struct StoredLayoutFailure: Error {
     public init(code: Int) { self.code = code; self.token = StoredLayoutTrackedRef(value: code) }
 }
 
-/// `AnyObject`: one pointer. The field is reached only through Swift, so the value's storage and
-/// ownership are what C# exercises.
+/// `AnyObject`: one pointer, which C# also reads and writes through the field's own accessors.
 @frozen public struct StoredLayoutObjectHolder {
-    fileprivate var object: AnyObject
+    public var object: AnyObject
     public var count: Int
     public init(ref: StoredLayoutTrackedRef, count: Int) { self.object = ref; self.count = count }
 }

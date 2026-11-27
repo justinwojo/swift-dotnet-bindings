@@ -74,6 +74,9 @@ public sealed class SwiftExistential<TContainer> : ISwiftExistentialConvertible<
     /// <summary>Whether the value has been released.</summary>
     public bool IsDisposed => Volatile.Read(ref _released) != 0;
 
+    /// <summary>Whether the container holds a class-bound existential's reference in <c>Payload0</c>.</summary>
+    internal bool IsClassBound => _classBound;
+
     /// <summary>
     /// The container, borrowed: the box keeps ownership. Used to pass the value back to Swift.
     /// </summary>

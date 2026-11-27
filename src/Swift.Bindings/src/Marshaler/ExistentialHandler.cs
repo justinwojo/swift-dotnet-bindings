@@ -159,6 +159,59 @@ public class ExistentialHandler
     }
 
     /// <summary>
+    /// True for <c>AnyObject</c>, alone or with marker protocols (<c>AnyObject &amp; Sendable</c>):
+    /// an existential whose value is one class reference and no witness table.
+    /// </summary>
+    /// <remarks>
+    /// It crosses a <c>@_cdecl</c> wrapper the way every existential does, through a pointer to a
+    /// cell holding the value: Swift copies an argument out with <c>load(as:)</c> and writes a result
+    /// into the caller's buffer with <c>initializeMemory(as:)</c>. Only the cell differs, one word
+    /// rather than the opaque container, so the C# side builds and reads that word itself
+    /// (<see cref="AnyObjectArgumentFactory"/>, <see cref="AnyObjectCellRead"/>,
+    /// <see cref="AnyObjectOwnedHandOff"/>) and keeps the public type <c>object</c>, carrying the
+    /// reference in the class-bound form of <c>SwiftExistential&lt;ExistentialContainer1&gt;</c>.
+    /// Treating it as a one-witness opaque container handed Swift the address of a five-word
+    /// container where it read an object, and read five words out of a one-word result.
+    /// </remarks>
+    public static bool IsAnyObjectExistential(ProtocolListTypeSpec protocolList, ITypeDatabase? typeDatabase)
+    {
+        var nonMarker = GetNonMarkerProtocols(protocolList, typeDatabase);
+        return nonMarker.Count == 1 && IsAnyObjectName(nonMarker[0].Name);
+    }
+
+    private static bool IsAnyObjectName(string name) => name is "AnyObject" or "Swift.AnyObject";
+
+    /// <summary>
+    /// The runtime factory an <c>AnyObject</c> argument is built with. Its call shape matches
+    /// <c>GetOrCreate&lt;object&gt;(value, out owns, out keepAlive)</c>: it borrows the reference
+    /// (owns is always false) and roots <c>value</c> as the keep-alive across the call.
+    /// </summary>
+    public const string AnyObjectArgumentFactory = "Swift.Runtime.ExistentialContainerFactory.GetOrCreateObjectReference";
+
+    /// <summary>
+    /// Reads the one-word <c>AnyObject</c> cell at <paramref name="cellExpression"/> into the
+    /// container the class-bound <c>SwiftExistential</c> carries. The read takes no retain.
+    /// </summary>
+    public static string AnyObjectCellRead(string cellExpression) =>
+        $"Swift.Runtime.ExistentialContainerFactory.ReadObjectReference({cellExpression})";
+
+    /// <summary>
+    /// The <c>object</c> an <c>AnyObject</c> result cell is read into: the class-bound
+    /// <c>SwiftExistential</c>, adopting the +1 Swift wrote into the caller's buffer.
+    /// </summary>
+    public static string AnyObjectResultToObject(string cellExpression) =>
+        NoProxyExistentialRead("object", "Swift.Runtime.ExistentialContainer1", AnyObjectCellRead(cellExpression),
+            classBound: true, owned: true);
+
+    /// <summary>
+    /// The container that hands <paramref name="valueExpression"/> to Swift as an owned
+    /// <c>AnyObject</c> (a reverse-dispatch result Swift takes over): one retained reference in
+    /// <c>Payload0</c>, which Swift moves out of the first word.
+    /// </summary>
+    public static string AnyObjectOwnedHandOff(string valueExpression) =>
+        $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedObjectReference({valueExpression})";
+
+    /// <summary>
     /// Sets the composition collector on this handler for late injection.
     /// </summary>
     /// <remarks>

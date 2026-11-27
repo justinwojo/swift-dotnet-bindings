@@ -274,6 +274,18 @@ public class ReceiverConversionVisitorTests
         Assert.Equal(ReceiverSlotReadKind.RawRead,
             Kind(new ExistentialProjection("ExistentialContainer1", "IMyProtocol", "MyProtocolProxy")));
         Assert.Equal(ReceiverSlotReadKind.RawRead, Kind(new ObjCBridgedProjection("NSUrlSession")));
+        // The control for the AnyObject read below: the same carrier without the AnyObject flag.
+        Assert.Equal(ReceiverSlotReadKind.RawRead,
+            Kind(new ExistentialProjection("Swift.Runtime.ExistentialContainer1", "object", null)));
+    }
+
+    [Fact]
+    public void SlotRead_AnyObject_ReadsOnlyTheReferenceWord()
+    {
+        // Swift lends an AnyObject argument as a one-word cell; reading the five-word container
+        // there would take four words of whatever follows the cell.
+        Assert.Equal(ReceiverSlotReadKind.ObjectReferenceCell,
+            Kind(new ExistentialProjection("Swift.Runtime.ExistentialContainer1", "object", null, isAnyObject: true)));
     }
 
     [Fact]

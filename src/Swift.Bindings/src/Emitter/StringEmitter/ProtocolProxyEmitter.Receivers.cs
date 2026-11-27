@@ -2239,6 +2239,7 @@ public partial class ProtocolProxyEmitter
         {
             ReceiverSlotReadKind.ObjectMarshal => $"{Marshal}.MarshalFromSwiftObject<{abiTypeName}>({slotExpr})",
             ReceiverSlotReadKind.CopiedValue => $"{Marshal}.MarshalCopiedValueFromSlot<{abiTypeName}>({slotExpr})",
+            ReceiverSlotReadKind.ObjectReferenceCell => ExistentialHandler.AnyObjectCellRead(slotExpr),
             _ => $"MarshalFromSwift<{abiTypeName}>({slotExpr})",
         };
     }

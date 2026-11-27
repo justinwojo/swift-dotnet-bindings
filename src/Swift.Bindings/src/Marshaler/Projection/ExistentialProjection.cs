@@ -23,6 +23,7 @@ public class ExistentialProjection : ITypeProjection
     private readonly bool _proxyIsSuppressed;
     private readonly bool _isObjCExistential;
     private readonly bool _hasOpaqueContainerLayout;
+    private readonly bool _isAnyObject;
 
     /// <summary>
     /// Creates an existential projection.
@@ -61,8 +62,17 @@ public class ExistentialProjection : ITypeProjection
     /// composition with a class-bound or <c>@objc</c> member is laid out differently and cannot be
     /// read element by element through that carrier.
     /// </param>
-    public ExistentialProjection(string containerType, string publicType, string? proxyClassName, bool isBareAny = false, bool isClassBoundArity1 = false, bool proxyIsSuppressed = false, bool isObjCExistential = false, bool hasOpaqueContainerLayout = false)
+    /// <param name="isAnyObject">
+    /// True for <c>AnyObject</c> (<see cref="ExistentialHandler.IsAnyObjectExistential(ProtocolListTypeSpec, ITypeDatabase?)"/>):
+    /// one class reference and no witness table. Its public type stays <c>object</c>; the parameter,
+    /// return and reverse-dispatch arms build or read the reference in <c>Payload0</c> of the
+    /// <c>ExistentialContainer1</c> carrier and box it in the class-bound <c>SwiftExistential</c>,
+    /// never the opaque container. Collections, optionals and closures holding <c>AnyObject</c> are
+    /// skipped before projection, so their element arms do not answer for it.
+    /// </param>
+    public ExistentialProjection(string containerType, string publicType, string? proxyClassName, bool isBareAny = false, bool isClassBoundArity1 = false, bool proxyIsSuppressed = false, bool isObjCExistential = false, bool hasOpaqueContainerLayout = false, bool isAnyObject = false)
     {
+        _isAnyObject = isAnyObject;
         _hasOpaqueContainerLayout = hasOpaqueContainerLayout;
         _containerType = containerType;
         _publicType = publicType;
@@ -83,6 +93,15 @@ public class ExistentialProjection : ITypeProjection
     /// <see cref="OptionalProjection"/> to route <c>(any P)?</c> through the nullable-pointer ABI.
     /// </summary>
     public bool IsObjCExistential => _isObjCExistential;
+
+    /// <summary>
+    /// True for <c>AnyObject</c>: the value is one class reference, read and written through the
+    /// first word of its cell, and carried in <c>object</c> by the class-bound <c>SwiftExistential</c>.
+    /// </summary>
+    public bool IsAnyObject => _isAnyObject;
+
+    // Whether the no-proxy carrier holds a class reference (its +1) rather than an opaque container.
+    private bool NoProxyClassBound => _isClassBoundArity1 || _isAnyObject;
 
     /// <summary>
     /// True for a bare <c>Any</c> (or a marker-only composition): the value crosses in an
@@ -296,6 +315,10 @@ public class ExistentialProjection : ITypeProjection
         {
             expr = $"ExistentialContainer0.Box({paramName})";
         }
+        else if (_isAnyObject)
+        {
+            expr = $"{ExistentialHandler.AnyObjectArgumentFactory}({paramName}, out _, out _)";
+        }
         else
         {
             // GetOrCreate only works for single-protocol existentials (EC1) with proxy classes.
@@ -350,7 +373,7 @@ public class ExistentialProjection : ITypeProjection
                 ? $"new {_proxyClassName}({resultName}{OwnsContainerArg})"
                 // No proxy class (`object`, or the read-only union): the carrier adopts the +1.
                 : ExistentialHandler.IsNoProxyExistentialCarrier(_publicType)
-                    ? ExistentialHandler.NoProxyExistentialRead(_publicType, _containerType, resultName, _isClassBoundArity1, owned: true)
+                    ? ExistentialHandler.NoProxyExistentialRead(_publicType, _containerType, resultName, NoProxyClassBound, owned: true)
                     // Well-known no-proxy existential (Swift.Foundation.AnyError): an owned +1
                     // transfer, so the wrapper adopts the boxed error and releases it on
                     // Dispose/finalize. The helper is a no-op for any other well-known type.
@@ -432,6 +455,10 @@ public class ExistentialProjection : ITypeProjection
     public string? GetOwnedParameterElementConversion(string elementVar) =>
         _isBareAny
             ? $"ExistentialContainer0.Box({elementVar})"
+            // AnyObject: Swift moves the reference out of the cell's first word, so hand it a +1 of
+            // its own; the box or proxy the value came from keeps its count.
+            : _isAnyObject
+                ? ExistentialHandler.AnyObjectOwnedHandOff(elementVar)
             // An @objc existential produced to Swift is a single +1-owned bare object pointer, NOT a
             // 40-byte EC1 — so gate this BEFORE the EC1 arm (an @objc projection still carries
             // _containerType == ExistentialContainer1). Mint the owned class carrier and hand Swift its
@@ -454,7 +481,7 @@ public class ExistentialProjection : ITypeProjection
                         // No proxy class: the value is the owning box a read returned, which only
                         // lends its container, so mint the reference Swift consumes.
                         : (ExistentialHandler.IsNoProxyExistentialCarrier(_publicType)
-                            ? ExistentialHandler.NoProxyExistentialToOwnedContainer(_containerType, elementVar, _isClassBoundArity1)
+                            ? ExistentialHandler.NoProxyExistentialToOwnedContainer(_containerType, elementVar, NoProxyClassBound)
                             // A boxed any Error lends its container too: take the count Swift consumes.
                             : ExistentialHandler.WellKnownOwnedHandOff(_publicType, elementVar))
                           ?? $"((ISwiftExistentialConvertible<{_containerType}>){elementVar}).GetExistentialContainer()";
@@ -514,7 +541,7 @@ public class ExistentialProjection : ITypeProjection
         // No proxy class (object, or the read-only union): the value is an owning box that only lends
         // its container, so the carrier gets a count of its own.
         if (ExistentialHandler.IsNoProxyExistentialCarrier(_publicType)
-            && ExistentialHandler.NoProxyExistentialToOwnedContainer(_containerType, elementVar, _isClassBoundArity1) is { } ownedNoProxy)
+            && ExistentialHandler.NoProxyExistentialToOwnedContainer(_containerType, elementVar, NoProxyClassBound) is { } ownedNoProxy)
             return ownedNoProxy;
 
         // Bare Any boxes a fresh +1 already. A well-known existential (any Error) stays borrowed: in
@@ -562,7 +589,7 @@ public class ExistentialProjection : ITypeProjection
             // No proxy class (`object`, or the read-only union): the source keeps its ownership, so
             // the carrier takes its own retained copy rather than outliving a borrowed container.
             : ExistentialHandler.IsNoProxyExistentialCarrier(_publicType)
-                ? $"({_publicType}){ExistentialHandler.NoProxyExistentialRead(_publicType, _containerType, elementVar, _isClassBoundArity1, owned: false)}"
+                ? $"({_publicType}){ExistentialHandler.NoProxyExistentialRead(_publicType, _containerType, elementVar, NoProxyClassBound, owned: false)}"
                 : $"new {_publicType}({elementVar})";
     }
 
@@ -609,7 +636,7 @@ public class ExistentialProjection : ITypeProjection
         // No proxy class: the carrier adopts the +1, matching AdoptsOwnedReturn (the caller then
         // only frees the buffer's storage).
         if (ExistentialHandler.IsNoProxyExistentialCarrier(_publicType))
-            return $"({_publicType}){ExistentialHandler.NoProxyExistentialRead(_publicType, _containerType, elementVar, _isClassBoundArity1, owned: true)}";
+            return $"({_publicType}){ExistentialHandler.NoProxyExistentialRead(_publicType, _containerType, elementVar, NoProxyClassBound, owned: true)}";
         if (_isObjCExistential)
             return GetReturnElementConversion(elementVar);
         // Well-known no-proxy carrier (AnyError): adopts the +1 like the scalar return plan does.

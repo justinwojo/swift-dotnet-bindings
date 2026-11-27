@@ -1966,6 +1966,136 @@ public static class ExistentialContainerFactory
     }
 
     /// <summary>
+    /// Builds the container an <c>AnyObject</c> argument crosses in: the class reference
+    /// <paramref name="value"/> stands for, in <c>Payload0</c>, borrowed for the call.
+    /// </summary>
+    /// <remarks>
+    /// An <c>AnyObject</c> is one class reference with no witness table. Generated code copies this
+    /// container to a buffer and passes its address; Swift reads the first word as the object and
+    /// retains its own copy. Shaped like <see cref="GetOrCreate{TProtocol}(TProtocol, out bool, out object?)"/>
+    /// so a call site shares its cleanup: <paramref name="ownsContainer"/> is always false (the
+    /// reference is borrowed, so the buffer is only freed) and <paramref name="keepAlive"/> is
+    /// <paramref name="value"/>, which the call site keeps alive across the native call.
+    /// </remarks>
+    /// <param name="value">
+    /// What the binding hands out for a Swift class instance: a generated class wrapper (or a C#
+    /// subclass of one), an Objective-C object, a protocol proxy over a class instance, or the
+    /// <c>object</c> an <c>AnyObject</c> member returned.
+    /// </param>
+    /// <param name="ownsContainer">Always false.</param>
+    /// <param name="keepAlive"><paramref name="value"/>, to keep alive across the call.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="value"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="value"/> does not stand for a class instance.</exception>
+    /// <exception cref="ObjectDisposedException"><paramref name="value"/> has been disposed.</exception>
+    public static ExistentialContainer1 GetOrCreateObjectReference(object value, out bool ownsContainer, out object? keepAlive)
+    {
+        var reference = ResolveObjectReference(value);
+        ownsContainer = false;
+        keepAlive = value;
+        return new ExistentialContainer1 { Payload0 = reference };
+    }
+
+    /// <summary>
+    /// Builds the container that hands <paramref name="value"/> to Swift as an owned
+    /// <c>AnyObject</c>: the class reference in <c>Payload0</c>, retained once for Swift to take.
+    /// </summary>
+    /// <exception cref="ArgumentNullException"><paramref name="value"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="value"/> does not stand for a class instance.</exception>
+    /// <exception cref="ObjectDisposedException"><paramref name="value"/> has been disposed.</exception>
+    public static ExistentialContainer1 CreateOwnedObjectReference(object value)
+    {
+        var reference = ResolveObjectReference(value);
+        Arc.UnknownObjectRetain(reference);
+        GC.KeepAlive(value);
+        return new ExistentialContainer1 { Payload0 = reference };
+    }
+
+    /// <summary>
+    /// Reads the one-word <c>AnyObject</c> cell at <paramref name="cell"/> (an argument Swift
+    /// lends, or a result Swift wrote) into a container holding the reference in <c>Payload0</c>.
+    /// The read takes no retain: a borrowed cell is copied with
+    /// <see cref="SwiftExistential{TContainer}.FromBorrowed"/>, an owned one adopted by the
+    /// class-bound <see cref="SwiftExistential{TContainer}"/>.
+    /// </summary>
+    /// <exception cref="ArgumentNullException"><paramref name="cell"/> is zero.</exception>
+    public static ExistentialContainer1 ReadObjectReference(IntPtr cell)
+    {
+        if (cell == IntPtr.Zero)
+            throw new ArgumentNullException(nameof(cell));
+        return new ExistentialContainer1 { Payload0 = Marshal.ReadIntPtr(cell) };
+    }
+
+    // The class reference a C# value stands for. A container a box or proxy carries holds it in
+    // Payload0 when the existential is class-bound, and inline in Payload0 too when an opaque
+    // container's value is a class instance, which its stored metadata says.
+    private static IntPtr ResolveObjectReference(object value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        IntPtr reference = value switch
+        {
+            SwiftExistential<ExistentialContainer1> { IsClassBound: true } box => box.GetExistentialContainer().Payload0,
+            ExistentialUnion { IsClassBound: true } union => union.GetExistentialContainer().Payload0,
+            ISwiftExistentialConvertible<ExistentialContainer1> convertible => ReferenceInContainer(value, convertible.GetExistentialContainer()),
+            ExistentialContainer1 container => ReferenceInContainer(value, container),
+            ISwiftObject swiftObject => ReferenceOfSwiftObject(value, swiftObject),
+#if IOS || TVOS || MACCATALYST || MACOS
+            // Only an Objective-C object. Other native handles (a selector, an opaque C handle such
+            // as an audio or MIDI object) are not objects, and Swift would read one as an isa. That
+            // includes CoreFoundation.NativeObject: it wraps Core Foundation objects but also opaque
+            // handles that are not (a PDF scanner or operator table), so its type cannot vouch.
+            Foundation.NSObject native => SwiftHandleGuard.GetLiveObjCHandle(native),
+#endif
+            _ => throw NotAnObject(value, "it is not a Swift or Objective-C object"),
+        };
+        // A disposed proxy, or a carrier made without a reference, holds none to lend.
+        if (reference == IntPtr.Zero)
+            throw new ObjectDisposedException(value.GetType().FullName, "The value holds no object reference.");
+        return reference;
+    }
+
+    private static IntPtr ReferenceInContainer(object value, ExistentialContainer1 container)
+    {
+        if (SwiftProtocolRegistry.IsClassBoundProxy(value.GetType()))
+            return container.Payload0;
+        if (container.ObjectMetadata.IsValid && container.ObjectMetadata.SatisfiesClassConstraint)
+            return container.Payload0;
+        throw NotAnObject(value, "it holds a value that is not a class instance");
+    }
+
+    private static IntPtr ReferenceOfSwiftObject(object value, ISwiftObject swiftObject)
+    {
+        var metadata = ResolveSwiftObjectMetadata(value.GetType());
+        if (!metadata.IsValid)
+            throw NotAnObject(value, "its Swift type cannot be resolved");
+        if (!metadata.SatisfiesClassConstraint)
+            throw NotAnObject(value, "it is a Swift value type");
+        return SwiftHandleGuard.GetLiveHandle(swiftObject);
+    }
+
+    // A generated wrapper's own type resolves its metadata. A C# subclass of a generated class
+    // inherits the base's GetTypeMetadata, which a lookup on the subclass alone does not find, so
+    // the walk stops at the first type in the chain that names a Swift type.
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2067",
+        Justification = "Each type walked is an ISwiftObject implementation whose GetTypeMetadata member is preserved for consumers by the shipped ILLink.Descriptors.xml, as for CreateAnyRuntime.")]
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2072",
+        Justification = "As above: a base type in the walk is an ISwiftObject implementation the descriptors preserve.")]
+    private static TypeMetadata ResolveSwiftObjectMetadata(Type type)
+    {
+        for (Type? candidate = type; candidate is not null && typeof(ISwiftObject).IsAssignableFrom(candidate); candidate = candidate.BaseType)
+        {
+            var metadata = SwiftObjectReflectionHelper.ResolveTypeMetadataCacheFirst(candidate);
+            if (metadata.IsValid)
+                return metadata;
+        }
+        return TypeMetadata.Zero;
+    }
+
+    private static ArgumentException NotAnObject(object value, string reason) =>
+        new($"Cannot pass {value.GetType().FullName} as AnyObject: {reason}. AnyObject takes a Swift " +
+            "class instance (a generated class, or a value an AnyObject member returned) or an Objective-C object (an NSObject).",
+            nameof(value));
+
+    /// <summary>
     /// Creates an existential container from a value using a pre-computed witness table array.
     /// This is useful when the protocol types are not known at compile time.
     /// </summary>

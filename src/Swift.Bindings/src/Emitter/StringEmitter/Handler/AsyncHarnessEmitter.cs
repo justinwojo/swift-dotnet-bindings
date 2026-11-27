@@ -768,6 +768,9 @@ namespace BindingsGeneration
                     : string.Empty;
                 string asyncWrapExpr;
                 bool asyncProxySuppressed = false;
+                // AnyObject: the harness wrote one class reference at +1 (initializeMemory(as:
+                // Swift.AnyObject.self)), read below as one word into the class-bound box.
+                bool asyncIsAnyObject = ExistentialHandler.IsAnyObjectExistential(asyncProtocolList, _env.TypeDatabase);
                 // The carrier free below is a plain dealloc, so every arm takes over the carrier's +1:
                 // a zero-witness existential (`Any`, markers only) is the plain value UnboxOwned copies
                 // out before destroying the container (as the synchronous return does); a no-proxy
@@ -776,7 +779,7 @@ namespace BindingsGeneration
                     asyncWrapExpr = "Swift.Runtime.ExistentialContainer0.UnboxOwned(__existentialResult)";
                 else if (ExistentialHandler.IsNoProxyExistentialCarrier(asyncPublicType))
                     asyncWrapExpr = ExistentialHandler.NoProxyExistentialRead(asyncPublicType, asyncContainerType, "__existentialResult",
-                        _env.ExistentialHandler.IsClassBoundArity1Existential(asyncProtocolList), owned: true);
+                        _env.ExistentialHandler.IsClassBoundArity1Existential(asyncProtocolList) || asyncIsAnyObject, owned: true);
                 else if (_env.ExistentialHandler.TryGetWellKnownProtocolType(asyncProtocolList, out var asyncWkIR))
                     asyncWrapExpr = $"new {asyncWkIR}(__existentialResult{ExistentialHandler.WellKnownOwnedTransferArg(asyncWkIR)})";
                 else if (_env.ExistentialHandler.IsProxyReferenceUnavailable(asyncProtocolList, _emissionContext))
@@ -810,9 +813,11 @@ namespace BindingsGeneration
                 // (40 bytes); reading the wider type over-reads 24 bytes past the allocation. The +1
                 // still transfers via the bitwise copy (carrier free is a plain dealloc, no VWT Destroy),
                 // so the proxy's ownsContainer adoption is unchanged — only the read width differs.
-                var asyncExistentialRead = _env.ExistentialHandler.IsClassBoundArity1Existential(asyncProtocolList)
-                    ? "Swift.Runtime.ClassExistentialContainer1.ReadHeapCell(resultPtr)"
-                    : $"SwiftMarshal.MarshalFromSwift<{asyncContainerType}>(resultPtr)";
+                var asyncExistentialRead = asyncIsAnyObject
+                    ? ExistentialHandler.AnyObjectCellRead("resultPtr")
+                    : _env.ExistentialHandler.IsClassBoundArity1Existential(asyncProtocolList)
+                        ? "Swift.Runtime.ClassExistentialContainer1.ReadHeapCell(resultPtr)"
+                        : $"SwiftMarshal.MarshalFromSwift<{asyncContainerType}>(resultPtr)";
                 // Suppressed proxy: fault the awaiting Task. A bare `T result = throw …;` is not a
                 // legal throw-expression context (CS8115), and the downstream TrySetResult(result)
                 // requires `result` to be definitely assigned, so route the throw through a `?:`

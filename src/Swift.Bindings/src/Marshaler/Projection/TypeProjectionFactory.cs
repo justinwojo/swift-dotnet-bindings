@@ -601,7 +601,8 @@ public class TypeProjectionFactory
             handler.IsProxyReferenceUnavailable(protocolList, context.EmissionContext);
 
         return new ExistentialProjection(containerType, publicType, proxyClassName, isBareAny, isClassBoundArity1, proxyIsSuppressed, isObjCExistential,
-            handler.HasOpaqueContainerLayout(protocolList));
+            handler.HasOpaqueContainerLayout(protocolList),
+            isAnyObject: ExistentialHandler.IsAnyObjectExistential(protocolList, context.TypeDatabase));
     }
 
     /// <summary>

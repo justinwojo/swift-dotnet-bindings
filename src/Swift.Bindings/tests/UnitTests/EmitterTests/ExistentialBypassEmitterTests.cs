@@ -1553,14 +1553,20 @@ public class ExistentialBypassEmitterTests
     }
 
     [Fact]
-    public void GetCdeclReturnMapping_AnyObject_ReturnsClassPointer()
+    public void GetCdeclReturnMapping_AnyObject_ReturnsIntoTheResultBuffer()
     {
+        // The C# side passes a result buffer for every existential and reads the reference out of
+        // its first word, so the wrapper must write there rather than return the object by value.
         var typeDb = new TypeDatabase();
-        var anyObject = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("AnyObject") });
+        var anyObject = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.AnyObject") });
         var (mapping, needsResultPtr) = CdeclReturnMapping.Classify(anyObject, typeDb);
 
-        Assert.Equal(CdeclReturnKind.ClassPointer, mapping.Kind);
-        Assert.False(needsResultPtr);
+        Assert.Equal(CdeclReturnKind.IndirectResult, mapping.Kind);
+        Assert.True(needsResultPtr);
+
+        var (namedMapping, namedNeedsResultPtr) = CdeclReturnMapping.Classify(new NamedTypeSpec("Swift.AnyObject"), typeDb);
+        Assert.Equal(CdeclReturnKind.IndirectResult, namedMapping.Kind);
+        Assert.True(namedNeedsResultPtr);
     }
 }
 

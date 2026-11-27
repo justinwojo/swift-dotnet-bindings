@@ -224,10 +224,12 @@ public class CdeclLoweringDescriptorTests
             CdeclParamCategory.Bool, "_ value: Swift.Int8", "let valueVal = value != 0", "valueVal");
 
     [Fact]
-    public void AnyObject_UsesUnmanagedAnyObject()
+    public void AnyObject_LoadsTheReferenceFromItsCell()
+        // The pointer addresses a cell holding the reference, as for every existential; it is
+        // never the object itself.
         => AssertDescriptor(Describe(Named("Swift.AnyObject")),
-            CdeclParamCategory.AnyObject, "_ value: Swift.UnsafeMutableRawPointer",
-            "let valueVal: Swift.AnyObject = Swift.Unmanaged<Swift.AnyObject>.fromOpaque(value).takeUnretainedValue()", "valueVal");
+            CdeclParamCategory.AnyObject, "_ value: Swift.UnsafeRawPointer",
+            "let valueVal: Swift.AnyObject = value.load(as: Swift.AnyObject.self)", "valueVal");
 
     [Fact]
     public void OptionalAny_LoadsOptionalAny()

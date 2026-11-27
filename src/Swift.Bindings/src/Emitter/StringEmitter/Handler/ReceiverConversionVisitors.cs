@@ -185,6 +185,13 @@ public partial class ProtocolProxyEmitter
         /// a raw read of the second over-reads past the discriminator into the neighbouring value.
         /// </summary>
         CopiedValue,
+
+        /// <summary>
+        /// <c>ExistentialContainerFactory.ReadObjectReference</c>: the slot is an <c>AnyObject</c>,
+        /// one class reference, which the read takes as the first word of the container the
+        /// class-bound box carries. Reading the opaque container's five words runs past the slot.
+        /// </summary>
+        ObjectReferenceCell,
     }
 
     /// <summary>
@@ -212,7 +219,9 @@ public partial class ProtocolProxyEmitter
         // Existential containers are fixed-layout blittable structs (or a bare pointer for an ObjC
         // existential) whose words the receiver takes as-is — the one carrier that must NOT be copied
         // through its own type metadata.
-        public ReceiverSlotReadKind Visit(ExistentialProjection p) => ReceiverSlotReadKind.RawRead;
+        // AnyObject is the exception: its slot is one class reference, not a container.
+        public ReceiverSlotReadKind Visit(ExistentialProjection p) =>
+            p.IsAnyObject ? ReceiverSlotReadKind.ObjectReferenceCell : ReceiverSlotReadKind.RawRead;
         // Closure parameters are expanded into (function pointer, context) machine words and are
         // intercepted upstream; any residual read is of a blittable closure-data struct.
         public ReceiverSlotReadKind Visit(ClosureProjection p) => ReceiverSlotReadKind.RawRead;

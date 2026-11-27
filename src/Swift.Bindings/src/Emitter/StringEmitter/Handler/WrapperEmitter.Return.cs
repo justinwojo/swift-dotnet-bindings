@@ -207,6 +207,15 @@ namespace BindingsGeneration
                 }
             }
 
+            // AnyObject: the wrapper wrote one class reference at +1 into the result buffer's first
+            // word (initializeMemory(as:)). Read that word, not a five-word container, and adopt it in
+            // the class-bound box, which releases the reference itself.
+            if (_requiresIndirectResult && ExistentialHandler.IsAnyObjectExistential(protocolList, _env.TypeDatabase))
+            {
+                csWriter.WriteLine($"return {ExistentialHandler.AnyObjectResultToObject(resultLocation)};");
+                return true;
+            }
+
             var containerType = _env.ExistentialHandler.GetCSharpExistentialType(protocolList);
             // A class-bound (single AnyObject-/superclass-constrained) existential is a compact
             // 2-word [classRef][witnessTable] heap cell (16 bytes), not the 5-word opaque

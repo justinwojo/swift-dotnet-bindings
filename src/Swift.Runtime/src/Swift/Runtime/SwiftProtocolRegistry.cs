@@ -172,6 +172,13 @@ public static class SwiftProtocolRegistry
         return retargeted;
     }
 
+    /// <summary>
+    /// Whether <paramref name="proxyType"/> is the registered proxy of a class-bound or
+    /// Objective-C protocol, whose container holds the instance in <c>Payload0</c>.
+    /// </summary>
+    internal static bool IsClassBoundProxy(Type proxyType) =>
+        TryLookup(s_byProxy, proxyType, out var entry) && entry.IsClassBound;
+
     // Registrations come from each binding's module initializer. A runtime runs it before the
     // module's first method call, which a type's first appearance here does not imply (a base
     // interface of another module may never have had a member called), so a miss runs the owning

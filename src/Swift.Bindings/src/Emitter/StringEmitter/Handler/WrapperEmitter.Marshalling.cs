@@ -917,7 +917,14 @@ namespace BindingsGeneration
                 // compositions (EC2+) use the direct cast.
                 bool owningCandidate = IsOwningExistentialCandidate(protocolList);
                 bool zeroWitness = ExistentialHandler.IsZeroWitnessExistential(protocolList, _env.TypeDatabase);
-                if (owningCandidate)
+                if (owningCandidate && ExistentialHandler.IsAnyObjectExistential(protocolList, _env.TypeDatabase))
+                {
+                    // AnyObject: the cell Swift reads is the class reference in the first word, which
+                    // the factory resolves from the C# value and borrows (owns stays false, so the
+                    // buffer is only freed); the value is the keep-alive across the call.
+                    csWriter.WriteLine($"var {csName}Container = {ExistentialHandler.AnyObjectArgumentFactory}({csName}, out {csName}Owns, out {csName}KeepAlive);");
+                }
+                else if (owningCandidate)
                 {
                     // Auto-wrap fallback only when we actually emit a proxy class for the protocol.
                     // Stdlib/external protocols (e.g. Swift.Encodable) project to publicType "object"

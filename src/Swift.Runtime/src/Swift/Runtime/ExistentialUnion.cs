@@ -83,6 +83,9 @@ public sealed class ExistentialUnion : ISwiftExistentialConvertible<ExistentialC
     /// <summary>Whether an owned value has been released.</summary>
     public bool IsDisposed => Volatile.Read(ref _released) != 0;
 
+    /// <summary>Whether the container holds a class-bound existential's reference in <c>Payload0</c>.</summary>
+    internal bool IsClassBound => _classBound;
+
     /// <summary>
     /// Gets the underlying existential container for parameter marshalling (borrowed).
     /// </summary>

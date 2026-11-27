@@ -45,12 +45,13 @@ internal record CdeclReturnMapping(string CdeclReturnType, CdeclReturnKind Kind)
         if (typeSpec is NamedTypeSpec lsrNamed && lsrNamed.Name == "Foundation.LocalizedStringResource")
             return (new CdeclReturnMapping("SBW_Utf8Slice", CdeclReturnKind.String), true);
 
-        // AnyObject: IS a class reference by definition — use Unmanaged.passRetained().toOpaque().
-        // AnyObject may appear as ProtocolListTypeSpec (from existential parsing) or as plain
-        // NamedTypeSpec (from TypeSpecParser). Without this gate, it falls through to IndirectResult
-        // and emits `any AnyObject.self` which is not valid Swift.
+        // AnyObject returns like every other existential, into the caller's result buffer
+        // (initializeMemory(as:)), which the C# side passes and reads back. The value occupies the
+        // buffer's first word, the class reference at +1. AnyObject may appear as
+        // ProtocolListTypeSpec (from existential parsing) or as plain NamedTypeSpec (from
+        // TypeSpecParser); decided here so both spellings take the indirect result.
         if (CdeclParamMapper.IsAnyObjectType(typeSpec))
-            return (new CdeclReturnMapping("Swift.UnsafeMutableRawPointer", CdeclReturnKind.ClassPointer), false);
+            return (new CdeclReturnMapping("Swift.Void", CdeclReturnKind.IndirectResult), true);
 
         // @objc protocol existentials: a single 8-byte ObjC object pointer (no witness table, no
         // descriptor) — identical wire to a class reference. Return BY VALUE via the ClassPointer

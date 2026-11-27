@@ -172,14 +172,16 @@ public static class CdeclParamMapper
             return Simple(CdeclParamCategory.Primitive, $"_ {label}: {swiftType}", null, $"{argLabel}{label}");
         }
 
-        // AnyObject: IS a class reference by definition — use Unmanaged<AnyObject> marshalling.
-        // Without this, AnyObject falls through to protocol existential path which emits
-        // `any AnyObject.self` (not valid Swift metatype syntax).
+        // AnyObject crosses like every other existential: the C# side passes the address of a cell
+        // holding the value, and the wrapper copies it out with load(as:), which retains the
+        // reference for the call. The cell is the existential's own one-word layout, the class
+        // reference (ExistentialHandler.IsAnyObjectExistential decides the C# side). Spelled as
+        // Swift.AnyObject because the generic arm below would name it `any AnyObject`.
         if (IsAnyObjectType(swiftTypeSpec))
         {
             return Simple(CdeclParamCategory.AnyObject,
-                    $"_ {label}: Swift.UnsafeMutableRawPointer",
-                    $"let {label}Val: Swift.AnyObject = Swift.Unmanaged<Swift.AnyObject>.fromOpaque({label}).takeUnretainedValue()",
+                    $"_ {label}: Swift.UnsafeRawPointer",
+                    $"let {label}Val: Swift.AnyObject = {label}.load(as: Swift.AnyObject.self)",
                     $"{argLabel}{label}Val");
         }
 
@@ -802,9 +804,10 @@ public static class CdeclParamMapper
     }
 
     /// <summary>
-    /// Checks whether a type spec represents AnyObject (the universal class protocol).
-    /// AnyObject IS a class reference by definition and should use Unmanaged marshalling,
-    /// not existential .load(as:) which produces invalid `any AnyObject.self` syntax.
+    /// Checks whether a type spec is a lone <c>AnyObject</c>, which the wrapper spells
+    /// <c>Swift.AnyObject</c> for its own <c>load(as:)</c> and <c>initializeMemory(as:)</c>.
+    /// A composition with marker protocols (<c>AnyObject &amp; Sendable</c>) keeps its own
+    /// spelling through the protocol-existential arms; both share the one-word cell.
     /// </summary>
     internal static bool IsAnyObjectType(TypeSpec typeSpec)
     {
