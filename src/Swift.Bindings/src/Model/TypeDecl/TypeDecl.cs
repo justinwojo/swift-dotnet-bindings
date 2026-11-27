@@ -109,6 +109,16 @@ namespace BindingsGeneration
         public bool IsIngestionQuarantined { get; set; } = false;
 
         /// <summary>
+        /// Set on another module's type this module extends with types of its own when the receiver's
+        /// metadata accessor is in no symbol table or type database the generator has
+        /// (<c>extension String.Index { struct Payload {} }</c>). The receiver is only the host its
+        /// nested types are declared and emitted under: it is never registered, never laid out from
+        /// the partial declaration this module's interface holds, and its own members are reported
+        /// unbound.
+        /// </summary>
+        public bool IsUnresolvedForeignHost { get; set; } = false;
+
+        /// <summary>
         /// Whether this type is annotated with @MainActor.
         /// When true, generated Swift wrapper functions must include @MainActor annotation.
         /// </summary>

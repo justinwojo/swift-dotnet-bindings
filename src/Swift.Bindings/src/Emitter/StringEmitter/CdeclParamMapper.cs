@@ -931,8 +931,13 @@ public static class CdeclParamMapper
             return true;
         // System C-bridging modules whose frozen structs are always C-representable.
         // These modules expose C structs via Swift overlays — they are inherently @_cdecl-safe.
-        var module = SwiftTypeName.FromTypeSpec(typeSpec).Module;
-        return module is "CoreGraphics" or "CoreFoundation" or "Darwin" or "simd"
+        // A C struct is never nested, and a type nested in one of these modules' types may be
+        // another module's own (`extension String.Index { @frozen public struct Payload }`), which
+        // is a Swift struct like any other.
+        var name = SwiftTypeName.FromTypeSpec(typeSpec);
+        if (name.ModuleQualifiedName != $"{name.Module}.{name.Name}")
+            return false;
+        return name.Module is "CoreGraphics" or "CoreFoundation" or "Darwin" or "simd"
             or "Swift" or "ObjectiveC" or "_Concurrency";
     }
 

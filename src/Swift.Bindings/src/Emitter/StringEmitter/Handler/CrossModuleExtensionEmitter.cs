@@ -172,7 +172,8 @@ public static partial class CrossModuleExtensionEmitter
             // Trampoline P/Invokes accumulate here so the NativeMethods block can emit
             // their Cdecl declarations alongside the existing Swift-conv P/Invokes.
             var trampolinePinvokes = new List<ClassTrampolinePInvokeInfo>();
-            var origSwiftTypeQualified = $"{origModule}.{classDecl.Name}";
+            // The full Swift name: a nested receiver (`Outer.Inner`) is spelled through its outer types.
+            var origSwiftTypeQualified = classDecl.SwiftTypeName.ModuleQualifiedName;
             // Methods routed through the trampoline path — tracked so the NativeMethods
             // pass below can skip emitting their direct Swift-conv P/Invoke as well.
             var methodsRoutedToTrampoline = new HashSet<MethodDecl>();
@@ -394,7 +395,8 @@ public static partial class CrossModuleExtensionEmitter
     /// does not bind at all, so an extension the receiver gates turn away is not a silent loss.
     /// </summary>
     private static void RecordUnboundReceiverMembers(
-        TypeDecl receiver, ModuleDecl moduleDecl, string why, ModuleEmissionContext? emissionContext)
+        TypeDecl receiver, ModuleDecl moduleDecl, string why, ModuleEmissionContext? emissionContext,
+        bool includeNestedTypes = true)
     {
         var currentModule = moduleDecl.Name;
         foreach (var method in receiver.Methods)
@@ -410,7 +412,7 @@ public static partial class CrossModuleExtensionEmitter
         RecordUnboundSubscriptsAndOperators(receiver, moduleDecl, emissionContext, why);
         // A member-level row, not RecordTypeSkipped: the skipped-type set feeds signature validation,
         // and a nested type withheld here must not turn away members elsewhere that name it.
-        foreach (var nested in receiver.Types)
+        foreach (var nested in includeNestedTypes ? receiver.Types : Enumerable.Empty<TypeDecl>())
         {
             if (nested.ModuleDecl?.Name == currentModule)
                 ReportCollector.RecordMemberSkipped(DeclIdFactory.ForType(nested), receiver,

@@ -1595,6 +1595,7 @@ namespace BindingsGeneration
             // malformed-record gate further down needs it: a foreign node must keep being WALKED
             // when it hosts current-module extension members, since that walk is what attaches them.
             bool hasCurrentModuleExtensionChildren = false;
+            bool unresolvedForeignHost = false;
             if (!string.IsNullOrEmpty(node.ModuleName) &&
                 !string.IsNullOrEmpty(moduleDecl.Name) &&
                 node.ModuleName != moduleDecl.Name)
@@ -1604,7 +1605,7 @@ namespace BindingsGeneration
                 // reference, a value receiver is not), and the module the type lives in says nothing
                 // about that (Foundation holds Swift enums and structs as well as ObjC classes).
                 RecordForeignTypeDeclKinds(
-                    node, GetSwiftTypeName(parentDecl, node.Name, node.ModuleName).ModuleQualifiedName, moduleDecl);
+                    node, GetTypeDeclName(node, parentDecl, node.ModuleName).ModuleQualifiedName, moduleDecl);
 
                 // Runtime-provided Swift stdlib generics (Optional / Array / Dictionary / Set /
                 // Result / ClosedRange) are supplied by Swift.Runtime as Swift.SwiftOptional<T>,
@@ -1654,7 +1655,7 @@ namespace BindingsGeneration
                     // are tolerated because the emitter has its own fallback-receiver guard.
                     if (isStructReceiver)
                     {
-                        var probeName = GetSwiftTypeName(parentDecl, node.Name, node.ModuleName);
+                        var probeName = GetTypeDeclName(node, parentDecl, node.ModuleName);
                         if (_resolver.TryGetForeignTypeShape(probeName, out var foreignShape) &&
                             foreignShape.Kind == TypeRecordKind.Struct &&
                             (!foreignShape.Flags.HasFlag(TypeRecordFlags.Frozen) ||
@@ -1670,13 +1671,29 @@ namespace BindingsGeneration
                         }
                     }
                     _logger.LogInformation($"Foreign {(isStructReceiver ? "struct" : "class")} '{node.Name}' carries extension members from '{moduleDecl.Name}' — routing to cross-module extension emitter.");
+
+                    // A receiver whose metadata accessor nothing the generator reads holds (a standard
+                    // library type: its symbols are in no table loaded here) cannot be bound, but the types
+                    // this module declares in it are this module's own, with accessors in its own symbol
+                    // table. Dropping the receiver would drop them too, and every struct storing one would
+                    // be judged without its layout. Keep the receiver as their host instead.
+                    var receiverName = GetTypeDeclName(node, parentDecl, node.ModuleName);
+                    if (isStructReceiver
+                        && (node.Children?.Any(child => child.Kind == "TypeDecl" && child.ModuleName == moduleDecl.Name) ?? false)
+                        && !HasReadableMetadataAccessor(receiverName))
+                    {
+                        unresolvedForeignHost = true;
+                        _logger.LogInformation(
+                            $"Foreign struct '{receiverName}' has no metadata accessor this "
+                            + $"generator can read; keeping it only as the host of the types '{moduleDecl.Name}' declares in it.");
+                    }
                 }
                 else if (!_resolver.IsSystemReexportAllowedModule(node.ModuleName))
                 {
                     _logger.LogInformation($"Skipping re-exported type '{node.Name}' (canonical module: {node.ModuleName}, current module: {moduleDecl.Name}).");
                     // Walked whatever the immediate children are: a declaration of this module can sit
                     // on a foreign type nested in this one, and that type is dropped with it.
-                    var receiverName = GetSwiftTypeName(parentDecl, node.Name, node.ModuleName).ModuleQualifiedName;
+                    var receiverName = GetTypeDeclName(node, parentDecl, node.ModuleName).ModuleQualifiedName;
                     RecordUnboundForeignReceiverChildren(
                         node, receiverName, moduleDecl,
                         $"it extends the foreign {DescribeReceiverKind(node)} '{receiverName}'; only class and "
@@ -1695,7 +1712,7 @@ namespace BindingsGeneration
                 moduleNameOverride = node.ModuleName;
             }
 
-            var typeName = GetSwiftTypeName(parentDecl, node.Name, moduleNameOverride);
+            var typeName = GetTypeDeclName(node, parentDecl, moduleNameOverride);
             var typeNameSpec = new NamedTypeSpec(typeName.ModuleQualifiedName);
             // For cross-module foreign types (moduleNameOverride != null), tolerate
             // `_typeDatabase.IsTypeProcessed` being true — that just means the dependency
@@ -1806,7 +1823,7 @@ namespace BindingsGeneration
             switch (node.DeclKind)
             {
                 case "Struct":
-                    decl = CreateStructDecl(node, parentDecl, moduleDecl, genericParameters, moduleNameOverride);
+                    decl = CreateStructDecl(node, parentDecl, moduleDecl, genericParameters, moduleNameOverride, unresolvedForeignHost);
                     break;
 
                 case "Enum":
@@ -2185,9 +2202,9 @@ namespace BindingsGeneration
         /// <param name="moduleDecl">The module declaration.</param>
         /// <param name="genericParameters">The generic parameters for this type.</param>
         /// <returns>The struct declaration.</returns>
-        private StructDecl CreateStructDecl(Node node, BaseDecl parentDecl, ModuleDecl moduleDecl, List<GenericArgumentDecl> genericParameters, string? moduleNameOverride = null)
+        private StructDecl CreateStructDecl(Node node, BaseDecl parentDecl, ModuleDecl moduleDecl, List<GenericArgumentDecl> genericParameters, string? moduleNameOverride = null, bool unresolvedForeignHost = false)
         {
-            var swiftTypeName = GetSwiftTypeName(parentDecl, node.Name, moduleNameOverride);
+            var swiftTypeName = GetTypeDeclName(node, parentDecl, moduleNameOverride);
             var hasFrozenAttribute = node.DeclAttributes is not null && Array.IndexOf(node.DeclAttributes, "Frozen") != -1;
 
             var decl = new StructDecl
@@ -2206,11 +2223,14 @@ namespace BindingsGeneration
                 IsFrozen = hasFrozenAttribute,
                 // The descriptor carries the bare presence of `@_alignment(N)`, never N itself.
                 HasCustomAlignment = node.DeclAttributes is not null && Array.IndexOf(node.DeclAttributes, "Alignment") != -1,
-                MetadataAccessor = ResolveMetadataAccessor(node, swiftTypeName, moduleDecl),
+                MetadataAccessor = unresolvedForeignHost ? string.Empty : ResolveMetadataAccessor(node, swiftTypeName, moduleDecl),
+                IsUnresolvedForeignHost = unresolvedForeignHost,
                 IsModuleInternal = IsNodeModuleInternal(node),
                 IsSpiProtected = IsNodeSpiProtected(node)
             };
-            if (!decl.IsModuleInternal)
+            // This module's public type list names its own types; a host is another module's type,
+            // and reading it as internal would withhold the wrappers of the public types it holds.
+            if (!decl.IsModuleInternal && !unresolvedForeignHost)
                 decl.IsModuleInternal = IsInternalFromPublicTypeNames(decl);
             if (!decl.IsModuleInternal && IsTypeUnavailableFromSwiftInterface(decl))
                 decl.IsModuleInternal = true;
@@ -2233,6 +2253,26 @@ namespace BindingsGeneration
         // on `extension` nodes) prevents unsupported foreign struct shapes from being routed
         // here. Truly unknown cross-module types still throw so a missing dependency surfaces
         // loudly instead of producing a broken accessor.
+        /// <summary>
+        /// Whether a foreign type's metadata accessor is in a symbol table or type database the
+        /// generator has: the rungs <see cref="ResolveMetadataAccessor"/> climbs for a foreign type,
+        /// the last of which throws when none has it.
+        /// </summary>
+        private bool HasReadableMetadataAccessor(SwiftTypeName typeName)
+        {
+            if (_resolver.TryGetMetadataAccessor(typeName, out _) || _resolver.IsTypeRegistered(typeName))
+                return true;
+            try
+            {
+                _resolver.GetMetadataAccessor(typeName);
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
         private string ResolveMetadataAccessor(Node node, SwiftTypeName swiftTypeName, ModuleDecl moduleDecl)
         {
             if (_resolver.TryGetMetadataAccessor(swiftTypeName, out var symbol))
@@ -2257,7 +2297,7 @@ namespace BindingsGeneration
         /// <returns>The enum declaration.</returns>
         private EnumDecl CreateEnumDecl(Node node, BaseDecl parentDecl, ModuleDecl moduleDecl, List<GenericArgumentDecl> genericParameters, string? moduleNameOverride = null)
         {
-            var swiftTypeName = GetSwiftTypeName(parentDecl, node.Name, moduleNameOverride);
+            var swiftTypeName = GetTypeDeclName(node, parentDecl, moduleNameOverride);
             var hasFrozenAttribute = node.DeclAttributes is not null && Array.IndexOf(node.DeclAttributes, "Frozen") != -1;
 
             var decl = new EnumDecl
@@ -2676,11 +2716,28 @@ namespace BindingsGeneration
             BaseDecl? current = typeDecl;
             while (current is TypeDecl td)
             {
-                parts.Add(SwiftSpelledName(td));
+                parts.Add(td.ParentDecl is TypeDecl ? SwiftSpelledName(td) : RootSpelledPath(td));
                 current = td.ParentDecl;
             }
             parts.Reverse();
             return string.Join(".", parts);
+        }
+
+        /// <summary>
+        /// The outermost declaration's component of <see cref="BuildTypeQualifiedPath"/>. Another
+        /// module's nested type that this module extends is rooted at the module under its leaf name
+        /// (<c>Index</c>), while its name and every interface fact spell it through its outer types
+        /// (<c>String.Index</c>).
+        /// </summary>
+        private static string RootSpelledPath(TypeDecl typeDecl)
+        {
+            var spelled = SwiftSpelledName(typeDecl);
+            var name = typeDecl.SwiftTypeName;
+            var qualified = name.ModuleQualifiedName;
+            if (string.IsNullOrEmpty(name.Module) || !qualified.StartsWith(name.Module + ".", StringComparison.Ordinal))
+                return spelled;
+            var belowModule = qualified.Substring(name.Module.Length + 1);
+            return belowModule.EndsWith("." + spelled, StringComparison.Ordinal) ? belowModule : spelled;
         }
 
         /// <summary>
@@ -2698,7 +2755,7 @@ namespace BindingsGeneration
         /// <returns>The class declaration.</returns>
         private ClassDecl CreateClassDecl(Node node, BaseDecl parentDecl, ModuleDecl moduleDecl, List<GenericArgumentDecl> genericParameters, string? moduleNameOverride = null)
         {
-            var swiftTypeName = GetSwiftTypeName(parentDecl, node.Name, moduleNameOverride);
+            var swiftTypeName = GetTypeDeclName(node, parentDecl, moduleNameOverride);
 
             // Detect actors by checking for conformance to the Swift Actor protocol.
             // Use the stable mangled name ($sScA) to avoid false positives from user-defined protocols named "Actor".
@@ -2942,7 +2999,7 @@ namespace BindingsGeneration
                 // the references built from its Swift type name spell it that way. Prefixing it would
                 // declare `I_readonly` while every reference names `Ireadonly`.
                 Name = StripIdentifierBackticks(node.Name),
-                SwiftTypeName = GetSwiftTypeName(parentDecl, node.Name, moduleNameOverride),
+                SwiftTypeName = GetTypeDeclName(node, parentDecl, moduleNameOverride),
                 MangledName = node.MangledName,
                 Properties = new List<PropertyDecl>(),
                 Methods = new List<MethodDecl>(),
@@ -4986,6 +5043,60 @@ namespace BindingsGeneration
             }
         }
 
+        /// <summary>
+        /// The name of the type <paramref name="node"/> declares. The digester roots another module's
+        /// type at the module by its own identifier, so a nested one (<c>String.Index</c>, extended
+        /// here) arrives as <c>Index</c> in <c>Swift</c>, while its mangling (<c>$sSS5IndexV</c>) names
+        /// the enclosing types too. A foreign node directly under the module takes the nesting its
+        /// mangling records; any other node is named from its parent.
+        /// </summary>
+        private SwiftTypeName GetTypeDeclName(Node node, BaseDecl parentDecl, string? moduleNameOverride)
+        {
+            var named = GetSwiftTypeName(parentDecl, node.Name, moduleNameOverride);
+            if (parentDecl is not ModuleDecl || string.IsNullOrEmpty(moduleNameOverride))
+                return named;
+            return TryNestedNameFromMangling(node.MangledName, moduleNameOverride, node.Name, out var nested) ? nested : named;
+        }
+
+        /// <summary>
+        /// The module-qualified name the nominal type mangling <paramref name="mangledName"/> spells,
+        /// when it names a type of <paramref name="module"/> whose last component is
+        /// <paramref name="identifier"/> and which sits inside another type. A top-level type, another
+        /// module's (an <c>@_originallyDefinedIn</c> mangling), a generic argument list, or a mangling
+        /// the demangler cannot read gives no answer.
+        /// </summary>
+        internal bool TryNestedNameFromMangling(string? mangledName, string module, string identifier, out SwiftTypeName name)
+        {
+            name = null!;
+            if (string.IsNullOrEmpty(mangledName) || !mangledName.StartsWith("$s", StringComparison.Ordinal))
+                return false;
+            SwiftTypeName demangled;
+            try
+            {
+                if (demangler.Run(mangledName) is not TypeSpecReduction { TypeSpec: NamedTypeSpec spec } || HasGenericArguments(spec))
+                    return false;
+                demangled = SwiftTypeName.FromTypeSpec(spec);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+            var qualified = demangled.ModuleQualifiedName;
+            if (demangled.Module != module || demangled.Name != identifier
+                || qualified.Length <= module.Length + identifier.Length + 2)
+                return false;
+            name = demangled;
+            return true;
+
+            static bool HasGenericArguments(NamedTypeSpec spec)
+            {
+                for (NamedTypeSpec? s = spec; s is not null; s = s.InnerType)
+                    if (s.GenericParameters.Count > 0)
+                        return true;
+                return false;
+            }
+        }
+
         private static SwiftTypeName GetSwiftTypeName(BaseDecl parentDecl, string name, string? moduleNameOverride = null)
             => parentDecl switch
             {
@@ -5079,7 +5190,7 @@ namespace BindingsGeneration
             string receiverName;
             try
             {
-                receiverName = GetSwiftTypeName(parentDecl, node.Name, node.ModuleName).ModuleQualifiedName;
+                receiverName = GetTypeDeclName(node, parentDecl, node.ModuleName).ModuleQualifiedName;
             }
             catch (Exception)
             {

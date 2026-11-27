@@ -55,6 +55,17 @@ public static partial class CrossModuleExtensionEmitter
         // Same fallback-receiver guard as the class path: if the foreign struct
         // is unknown to the type database, we cannot emit a safe extension class
         // (no C# type to extend, no Swift type to assumingMemoryBound to).
+        if (structDecl.IsUnresolvedForeignHost)
+        {
+            // Only the host of this module's own nested types: they are declared under it, and what
+            // it adds to the receiver itself has no receiver to bind to.
+            RecordUnboundReceiverMembers(structDecl, moduleDecl,
+                "the receiver's metadata accessor is in no symbol table the generator reads, so there is no C# type to extend.",
+                context?.GetEmissionContext(), includeNestedTypes: false);
+            EmitNestedTypes(csWriter, structDecl, currentModule, logger, context, recurseNestedTypes);
+            return;
+        }
+
         if (!typeDatabase.TryGetTypeRecord(structDecl.SwiftTypeName, out var origRecord))
         {
             logger.LogInformation(
@@ -83,7 +94,8 @@ public static partial class CrossModuleExtensionEmitter
         }
 
         var origCSharpType = origRecord.CSharpTypeName.FullyQualifiedName;
-        var origSwiftTypeQualified = $"{origModule}.{structDecl.Name}";
+        // The full Swift name: a nested receiver (`Outer.Inner`) is spelled through its outer types.
+        var origSwiftTypeQualified = structDecl.SwiftTypeName.ModuleQualifiedName;
 
         // Filter to only members from the current module (the extension members).
         var methods = new List<MethodDecl>();
@@ -251,6 +263,24 @@ public static partial class CrossModuleExtensionEmitter
             }
         }
 
+        EmitNestedTypes(csWriter, structDecl, currentModule, logger, context, recurseNestedTypes);
+    }
+
+    /// <summary>
+    /// Declares the types this module nests in the foreign struct under a partial class named like the
+    /// receiver's own C# leaf, which is where their records place them.
+    /// </summary>
+    private static void EmitNestedTypes(
+        CSharpWriter csWriter,
+        StructDecl structDecl,
+        string currentModule,
+        ILogger logger,
+        TypeHandlerContext? context,
+        Action<IEnumerable<BaseDecl>, TypeHandlerContext>? recurseNestedTypes)
+    {
+        var nestedTypes = structDecl.Types
+            .Where(t => t.ModuleDecl != null && t.ModuleDecl.Name == currentModule)
+            .ToList();
         if (nestedTypes.Count > 0 && recurseNestedTypes != null && context != null)
         {
             csWriter.WriteLine();

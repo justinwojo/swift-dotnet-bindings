@@ -619,13 +619,11 @@ public class SubscriptWrapperEmitterTests
 
 
     [Fact]
-    public void EvaluateWrapperEligibility_OptionalExistentialElement_StillRefusesAByValueNestedIndex()
+    public void EvaluateWrapperEligibility_OptionalExistentialElement_AdmitsANestedSystemIndexByAddress()
     {
-        // The other half of the same ordering hole, and the one arm where the by-value nested
-        // guard is load-bearing: a nested struct from a system module is classified for by-value
-        // transport, so its Swift-only nested name would land directly in the @_cdecl signature,
-        // which Swift refuses. Deleting the guard has to turn this red rather than leave the
-        // suite green.
+        // The other half of the same ordering hole. A nested struct is never a C struct, so even
+        // one under a system module crosses by address and its Swift-only nested name stays in the
+        // wrapper body, out of the @_cdecl signature: the subscript is admitted.
         var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes("MyType",
             ("TestModule.SomeProtocol", TypeRecordFlags.None, TypeRecordKind.Protocol));
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
@@ -655,8 +653,7 @@ public class SubscriptWrapperEmitterTests
 
         var env = new MethodEnvironment(accessor.Method, typeDb);
         var eligibility = SubscriptWrapperEmitter.EvaluateWrapperEligibility(subscriptDecl, accessor, env);
-        Assert.False(eligibility.IsWrappable);
-        Assert.Equal("nested_frozen_struct_index_param", eligibility.Reason);
+        Assert.True(eligibility.IsWrappable, eligibility.Reason);
     }
 
     #endregion

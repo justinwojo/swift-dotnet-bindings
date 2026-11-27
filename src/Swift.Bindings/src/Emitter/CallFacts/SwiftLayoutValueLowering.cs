@@ -136,7 +136,8 @@ public sealed class SwiftLayoutResolver
         // A module extending another module's type holds a partial declaration of it; the defining
         // module's declaration is the one whose stored properties are complete.
         var name = type.SwiftTypeName.ModuleQualifiedName;
-        if (!_types.TryGetValue(name, out var existing) || (!existing.IsOwn && isOwn))
+        // A host kept only for the types nested in it holds none of its stored properties.
+        if (!type.IsUnresolvedForeignHost && (!_types.TryGetValue(name, out var existing) || (!existing.IsOwn && isOwn)))
             _types[name] = (type, isOwn);
         // A nested declaration belongs to the module whose tree holds it.
         foreach (var nested in type.Types)

@@ -201,6 +201,12 @@ namespace BindingsGeneration
             if (structDecl.IsIngestionQuarantined)
                 return;
 
+            // Another module's struct kept only as the host of this module's nested types: what this
+            // module's interface holds of it is a partial declaration, and it has no accessor to read.
+            // Its nested types are processed as types of their own.
+            if (structDecl.IsUnresolvedForeignHost)
+                return;
+
             // Ensure that all properties are processed or known in the database.
             ProcessStructProperties(structDecl);
 
@@ -757,6 +763,26 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// The C# identifier path of a type, before PascalCasing: its Swift name below the module. A type
+        /// this module declares inside another module's type is emitted under a partial class named
+        /// for the declaration that holds it, so its path follows the declarations that hold it; for a
+        /// receiver the interface roots at the module (<c>Index</c>, named <c>Swift.String.Index</c>
+        /// from its mangling) that is not its Swift name below the module.
+        /// </summary>
+        private static string RawTypeIdentifier(TypeDecl typeDecl, NamedTypeSpec namedTypeSpec, string emittingModuleName)
+        {
+            if (emittingModuleName != namedTypeSpec.Module)
+            {
+                var path = new List<string>();
+                for (BaseDecl? decl = typeDecl; decl is TypeDecl held; decl = held.ParentDecl)
+                    path.Insert(0, held.SwiftTypeName.Name);
+                return string.Join(".", path);
+            }
+            var name = typeDecl.SwiftTypeName;
+            return name.Module == "" ? name.Name : name.ModuleQualifiedName.Substring(name.ModuleQualifiedName.IndexOf(".") + 1);
+        }
+
+        /// <summary>
         /// Inserts a struct's details (e.g. name, metadata accessor, frozenness, blittability) into the type database.
         /// </summary>
         /// <param name="namedTypeSpec">The Swift type specification, including module name.</param>
@@ -771,10 +797,7 @@ namespace BindingsGeneration
         {
             var emittingModuleName = ResolveEmittingModuleName(structDecl, namedTypeSpec);
             var @namespace = _namespacePatternResolver.ResolveNamespace(emittingModuleName);
-            var rawIdentifier = structDecl.SwiftTypeName.Module == ""
-                ? structDecl.SwiftTypeName.Name
-                : structDecl.SwiftTypeName.ModuleQualifiedName.Substring(
-                    structDecl.SwiftTypeName.ModuleQualifiedName.IndexOf(".") + 1);
+            var rawIdentifier = RawTypeIdentifier(structDecl, namedTypeSpec, emittingModuleName);
             var csharpTypeIdentifier = string.Join(".",
                 rawIdentifier.Split('.').Select(NameProvider.ToPascalCaseForTypeName));
             // Compute InlineSize from SwiftTypeInfo if metadata is available.
@@ -1499,10 +1522,7 @@ namespace BindingsGeneration
         {
             var emittingModuleName = ResolveEmittingModuleName(enumDecl, namedTypeSpec);
             var @namespace = _namespacePatternResolver.ResolveNamespace(emittingModuleName);
-            var rawIdentifier = enumDecl.SwiftTypeName.Module == ""
-                ? enumDecl.SwiftTypeName.Name
-                : enumDecl.SwiftTypeName.ModuleQualifiedName.Substring(
-                    enumDecl.SwiftTypeName.ModuleQualifiedName.IndexOf(".") + 1);
+            var rawIdentifier = RawTypeIdentifier(enumDecl, namedTypeSpec, emittingModuleName);
             var csharpTypeIdentifier = string.Join(".",
                 rawIdentifier.Split('.').Select(NameProvider.ToPascalCaseForTypeName));
 
@@ -1590,10 +1610,7 @@ namespace BindingsGeneration
                 flags |= TypeRecordFlags.ObjCRooted;
             var emittingModuleName = ResolveEmittingModuleName(classDecl, namedTypeSpec);
             var @namespace = _namespacePatternResolver.ResolveNamespace(emittingModuleName);
-            var rawIdentifier = classDecl.SwiftTypeName.Module == ""
-                ? classDecl.SwiftTypeName.Name
-                : classDecl.SwiftTypeName.ModuleQualifiedName.Substring(
-                    classDecl.SwiftTypeName.ModuleQualifiedName.IndexOf(".") + 1);
+            var rawIdentifier = RawTypeIdentifier(classDecl, namedTypeSpec, emittingModuleName);
             var csharpTypeIdentifier = string.Join(".",
                 rawIdentifier.Split('.').Select(NameProvider.ToPascalCaseForTypeName));
             var typeRecord = new TypeRecord
