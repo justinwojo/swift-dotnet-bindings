@@ -3404,8 +3404,24 @@ done; true"
   <!-- _CompileSwiftWrapper updates binding-metadata.props via
        UpdateMetadataPropsWrapperStatus. Re-read the updated values so
        downstream targets (_ValidateSwiftWrapperCompilation, _ResolveSwiftNativeReferences)
-       see the correct wrapper status. -->
+       see the correct wrapper status.
+
+       DependsOnTargets on the producer is load-bearing; AfterTargets alone let a second build
+       request read the props before the wrapper existed. One project configuration serves a
+       request per requester: in a diamond of project references (an app referencing a binding
+       both directly and through a second binding) the app's request and the second binding's
+       Build request share it. MSBuild makes a request wait for a target another request is
+       executing only when it reaches that target through DependsOnTargets. It never waits for an
+       AfterTargets hook of a target that already finished. So while the app's request sat in
+       _CompileSwiftWrapper (yielded on its GetSwiftFrameworkSearchPaths call), the second request
+       saw ResolveProjectReferences done, reached this target through _ResolveSwiftNativeReferences,
+       read HasWrapperXCFramework=False and failed the build with SWIFTBIND051. Naming the
+       producer makes that request wait for the compile. Within one request nothing changes:
+       _CompileSwiftWrapper has always finished before this target runs. Every reader of a
+       wrapper or bridge product below follows the same rule (_CompileSwiftUIBridge,
+       _UpdateSwiftBridgeMetadata, _IncludeSwiftResourceBundleStubs). -->
   <Target Name="_UpdateSwiftWrapperMetadata"
+          DependsOnTargets="_CompileSwiftWrapper"
           AfterTargets="_CompileSwiftWrapper">
     <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)binding-metadata.props"
              Query="/Project/PropertyGroup/_SwiftBindingHasWrapperXCFramework/text()"
@@ -3443,10 +3459,13 @@ done; true"
        Bridge compilation is simpler than wrapper: no post-processing, no thunks.
        The Exec itself is non-fatal (ContinueOnError) so the main bindings still build;
        _ValidateSwiftBridgeCompilation decides the outcome afterwards, and by default
-       (SwiftBridgeRequired=true) a failed bridge is a SWIFTBIND052 error, not a warning. -->
+       (SwiftBridgeRequired=true) a failed bridge is a SWIFTBIND052 error, not a warning.
+       The bridge links against the wrapper and takes @(_ResolvedDepXCFramework) from
+       _CompileSwiftWrapper, so it depends on the wrapper's metadata step rather than only
+       following it (see _UpdateSwiftWrapperMetadata). -->
   <Target Name="_CompileSwiftUIBridge"
           AfterTargets="_UpdateSwiftWrapperMetadata"
-          DependsOnTargets="_ValidateSwiftFrameworkDependencyForceLoad;_ImportSwiftBindingMetadata">
+          DependsOnTargets="_ValidateSwiftFrameworkDependencyForceLoad;_ImportSwiftBindingMetadata;_UpdateSwiftWrapperMetadata">
 
     <!-- Read bridge metadata from props (set during generation) -->
     <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)binding-metadata.props"
@@ -3514,7 +3533,9 @@ done; true"
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <!-- Target 4h: Re-read bridge metadata after compilation                   -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Depends on its producer for the reason given at _UpdateSwiftWrapperMetadata. -->
   <Target Name="_UpdateSwiftBridgeMetadata"
+          DependsOnTargets="_CompileSwiftUIBridge"
           AfterTargets="_CompileSwiftUIBridge">
     <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)binding-metadata.props"
              Query="/Project/PropertyGroup/_SwiftBindingHasBridgeXCFramework/text()"
@@ -3724,11 +3745,16 @@ done; true"
        hence before its ordinary ResolveProjectReferences invocation. Demand
        that existing producer boundary here: its generation and wrapper hooks
        finish before reading their manifest. Do not move wrapper compilation
-       ahead of its project dependencies or couple resources to native linking. -->
+       ahead of its project dependencies or couple resources to native linking.
+       The wrapper compile writes the manifest, and it runs as an AfterTargets hook of
+       ResolveProjectReferences, which a second build request sees as done while the first is
+       still compiling. Name it in DependsOnTargets too (after ResolveProjectReferences, so it
+       still follows the project dependencies), or that request reads no manifest and the
+       library ships without its bundles (see _UpdateSwiftWrapperMetadata). -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_IncludeSwiftResourceBundleStubs"
           BeforeTargets="_CollectBundleResources;_CollectPackLibraryResources"
-          DependsOnTargets="ResolveProjectReferences"
+          DependsOnTargets="ResolveProjectReferences;_CompileSwiftWrapper"
           Condition="'$(TargetFramework)' != '' AND '$(DesignTimeBuild)' != 'true' AND '$(SwiftFrameworkType)' != 'ObjC'">
 
     <PropertyGroup>
