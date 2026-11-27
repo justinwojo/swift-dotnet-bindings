@@ -139,4 +139,37 @@ public class FrozenStoredLayoutTests : TestBase
         using var echoed = TestLibFunctions.StoredLayoutShapeCellEcho(fromSwift);
         AssertEqual("6 sides/2", TestLibFunctions.StoredLayoutShapeCellName(echoed), "a by-value argument returned unchanged");
     }
+
+    public void TestAnUnownedGenericFieldSpecializedWithANativeClassCrossesInRegisters()
+    {
+        using var anchor = new StoredLayoutAnchor(40);
+        using var fromSwift = TestLibFunctions.MakeStoredLayoutUnownedHolder(anchor, 2);
+        AssertEqual(2, (int)fromSwift.Count, "C# reads the returned Int field");
+        AssertEqual(42, (int)TestLibFunctions.StoredLayoutUnownedHolderTotal(fromSwift), "Swift reads the returned struct back");
+
+        using var echoed = TestLibFunctions.StoredLayoutUnownedHolderEcho(fromSwift);
+        AssertEqual(42, (int)TestLibFunctions.StoredLayoutUnownedHolderTotal(echoed), "a by-value argument returned unchanged");
+        GC.KeepAlive(anchor);
+    }
+
+    public void TestAGenericFieldSpecializedWithAnIntCrossesInRegisters()
+    {
+        using var fromSwift = TestLibFunctions.MakeStoredLayoutWrappedNumber(7, 3);
+        AssertEqual(3, (int)fromSwift.Count, "C# reads the returned Int field");
+        AssertEqual(703, (int)TestLibFunctions.StoredLayoutWrappedNumberTotal(fromSwift), "Swift reads the returned struct back");
+
+        using var echoed = TestLibFunctions.StoredLayoutWrappedNumberEcho(fromSwift);
+        AssertEqual(703, (int)TestLibFunctions.StoredLayoutWrappedNumberTotal(echoed), "a by-value argument returned unchanged");
+    }
+
+    public void TestAGenericFieldSpecializedWithAStringCrossesInRegisters()
+    {
+        using var fromSwift = TestLibFunctions.MakeStoredLayoutWrappedText("wrap", 5);
+        AssertEqual(5, (int)fromSwift.Count, "C# reads the Int field after the String");
+        AssertEqual("wrap/5", TestLibFunctions.StoredLayoutWrappedTextName(fromSwift), "Swift reads the returned struct back");
+        AssertEqual(405, (int)TestLibFunctions.StoredLayoutWrappedTextCount(fromSwift), "a thunk-eligible member reads the struct");
+
+        using var echoed = TestLibFunctions.StoredLayoutWrappedTextEcho(fromSwift);
+        AssertEqual("wrap/5", TestLibFunctions.StoredLayoutWrappedTextName(echoed), "a by-value argument returned unchanged");
+    }
 }

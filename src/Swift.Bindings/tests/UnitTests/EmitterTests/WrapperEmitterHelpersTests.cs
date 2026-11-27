@@ -90,6 +90,20 @@ public class WrapperEmitterHelpersTests
         Assert.Equal(" where DonationInfo : Swift.Decodable", result);
     }
 
+    [Fact]
+    public void BuildParentSameTypeExtensionWhere_QualifiesTheClassLayoutConstraint()
+    {
+        // The ABI spells `T: AnyObject` bare; unqualified, a bound module's own `AnyObject` would
+        // capture the name in the emitted extension.
+        var parent = CreateGenericStructDecl("Box", "T");
+        var method = CreateMethodWithRawSig("<τ_0_0 where τ_0_0 : AnyObject>");
+
+        var result = WrapperEmitterHelpers.BuildParentSameTypeExtensionWhere(
+            method, parent, includeConformanceConstraints: true);
+
+        Assert.Equal(" where T : Swift.AnyObject", result);
+    }
+
     [Theory]
     [InlineData("Swift.Sendable")]
     [InlineData("Swift.Copyable")]

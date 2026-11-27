@@ -9,9 +9,23 @@ namespace BindingsGeneration
     public sealed record StructDecl : TypeDecl
     {
         /// <summary>
-        /// Whether the struct is frozen.
+        /// Whether the struct is frozen. Once the module processor has run, whether it is loadable to
+        /// clients: declared <c>@frozen</c> and storing nothing address-only to them.
         /// </summary>
         public required bool IsFrozen { get; set; }
+
+        /// <summary>
+        /// Whether the struct is declared <c>@frozen</c>, whatever <see cref="IsFrozen"/> later says
+        /// about its loadability. A generic struct storing a bare parameter is not loadable
+        /// unspecialized, but each specialization's layout follows from this declaration.
+        /// </summary>
+        public bool IsDeclaredFrozen
+        {
+            get => _isDeclaredFrozen ?? IsFrozen;
+            set => _isDeclaredFrozen = value;
+        }
+
+        private bool? _isDeclaredFrozen;
 
         /// <summary>
         /// Whether the struct raises its own alignment past what its stored fields require
