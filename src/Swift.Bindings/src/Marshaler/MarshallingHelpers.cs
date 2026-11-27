@@ -482,8 +482,21 @@ namespace BindingsGeneration
                     && (record.Flags & (TypeRecordFlags.ClassBound | TypeRecordFlags.ObjCBridged)) != 0)
                     return true;
             }
-            return false;
+            // `AnyObject` is a layout constraint, which the parsed conformances leave out; the
+            // member's signature keeps it, and the parent's when the type declares it.
+            return SignatureRequiresClass(env.MethodDecl.ParsedGenericSignature, parameter)
+                || (env.ParentDecl is TypeDecl parentType && SignatureRequiresClass(parentType.ParsedTypeGenericSignature, parameter));
         }
+
+        /// <summary>
+        /// Does <paramref name="signature"/> require <paramref name="parameter"/> itself to be a class
+        /// (<c>AnyObject</c>)? A signature names the parameter by its raw token, or in the sugared
+        /// dialect by its declared name.
+        /// </summary>
+        internal static bool SignatureRequiresClass(GenericSignatureModel signature, GenericArgumentDecl parameter)
+            => signature.Requirements.Any(r => r.IsDirect && r.Kind == GenericRequirementKind.Conformance
+                && (r.SubjectRoot == parameter.TypeName || r.SubjectRoot == parameter.SugaredTypeName)
+                && r.Target is "AnyObject" or "Swift.AnyObject");
 
         /// <summary>
         /// Is <paramref name="typeSpec"/> <c>Optional</c> of a class-bound generic parameter? Its

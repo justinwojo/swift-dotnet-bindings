@@ -341,6 +341,7 @@ namespace BindingsGeneration
                     propertyNames.Add(NameProvider.GetEmittedNestedTypeLeafName(nestedType, env.TypeDatabase));
                 // The native-width companions the property pass just placed are properties too.
                 NameProvider.AddNativeWidthCompanionNames(structDecl, propertyNames);
+                NameProvider.AddSynthesizedMemberNames(structDecl, env.TypeDatabase, propertyNames);
 
                 SubscriptHandler.EmitSubscripts(csWriter, swiftWriter, structDecl, env.TypeDatabase, conductor, childContext, _logger);
 

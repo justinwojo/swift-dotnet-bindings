@@ -1181,6 +1181,141 @@ public class FrozenStructHandlerTests
 
     #endregion
 
+    #region Stored strong references (ingestion flags and record-less fields)
+
+    /// <summary>
+    /// A frozen struct storing a strong reference owns a +1 on that object, so ingestion must put it
+    /// on the Buffer-backed projection, whose owner releases the value. The by-value projection it
+    /// fell back to has an empty <c>Dispose()</c>, which leaked every value Swift returned.
+    /// </summary>
+    [Theory]
+    [InlineData("AnyObject")]
+    [InlineData("Swift.AnyObject")]
+    [InlineData("TestModule.Anchor")]
+    [InlineData("TestModule.ClassBoundP")]
+    [InlineData("Swift.Error")]
+    [InlineData("TestModule.ClassBoundP & TestModule.PlainP")]
+    [InlineData("(TestModule.Anchor, Swift.Int64)")]
+    [InlineData("() -> Swift.Int64")]
+    [InlineData("Swift.Optional<AnyObject>")]
+    public void Ingestion_OfAStoredStrongReference_RequiresMemoryManagement(string fieldSpec)
+    {
+        var host = CreateFrozenStructWithStoredFields("RefHost",
+            ("held", TypeSpecParser.Parse(fieldSpec)!),
+            ("count", new NamedTypeSpec("Swift.Int64")));
+
+        var record = DeriveThroughIngestion(host, ReferenceShapeDeclarations());
+
+        Assert.True((record.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0, fieldSpec);
+    }
+
+    /// <summary>
+    /// Controls: a non-class-bound protocol composition and a C function pointer hold no reference,
+    /// and neither does a struct of plain integers, so none of them may be moved off the by-value
+    /// projection.
+    /// </summary>
+    [Theory]
+    [InlineData("Swift.Int64")]
+    [InlineData("(Swift.Int64, Swift.Int64)")]
+    [InlineData("@convention[c] () -> Swift.Int64")]
+    public void Ingestion_OfAStoredValueWithoutAReference_StaysByValue(string fieldSpec)
+    {
+        var host = CreateFrozenStructWithStoredFields("PlainHost",
+            ("held", TypeSpecParser.Parse(fieldSpec)!),
+            ("count", new NamedTypeSpec("Swift.Int64")));
+
+        var record = DeriveThroughIngestion(host, ReferenceShapeDeclarations());
+
+        Assert.True((record.Flags & TypeRecordFlags.RequiresMemoryManagement) == 0, fieldSpec);
+    }
+
+    /// <summary>
+    /// Once Buffer-backed, the reference fields get Swift's layout: an object pointer is one word, a
+    /// class-bound existential adds a witness table per protocol, and the Int after each lands where
+    /// <c>MemoryLayout</c> puts it.
+    /// </summary>
+    [Theory]
+    [InlineData("AnyObject", 8, 16)]
+    [InlineData("TestModule.ClassBoundP", 16, 24)]
+    [InlineData("(TestModule.Anchor, Swift.Int64)", 16, 24)]
+    public void Ingestion_OfAStoredStrongReference_PlansSwiftsLayout(string fieldSpec, int countOffset, int size)
+    {
+        var host = CreateFrozenStructWithStoredFields("RefHost",
+            ("held", TypeSpecParser.Parse(fieldSpec)!),
+            ("count", new NamedTypeSpec("Swift.Int64")));
+
+        var db = DatabaseAfterIngestion(host, ReferenceShapeDeclarations());
+
+        Assert.False(FrozenStructHandler.HasIndeterminateBufferLayout(host, db));
+        Assert.Null(TypeSkipConditions.FirstMatch(host, db, out _));
+        var plan = FrozenBufferLayout.TryPlan(host, db);
+        Assert.NotNull(plan);
+        Assert.Equal(countOffset, plan!.Fields[1].Slots[0].Offset);
+        Assert.Equal(size, ManagedSize(plan));
+    }
+
+    [Theory]
+    [InlineData("(TestModule.Anchor, Swift.Int64)")]
+    [InlineData("TestModule.ClassBoundP & TestModule.PlainP")]
+    [InlineData("() -> Swift.Int64")]
+    public void ClassifyFrozenStructField_RecordlessSpec_IsIndeterminateRatherThanThrowing(string fieldSpec)
+    {
+        var db = new TypeDatabase();
+
+        var kind = FrozenStructHandler.ClassifyFrozenStructField(TypeSpecParser.Parse(fieldSpec)!, db, out _);
+
+        Assert.Equal(FrozenStructHandler.FrozenFieldLayoutKind.Indeterminate, kind);
+    }
+
+    /// <summary>
+    /// A by-value frozen struct whose field has no type record used to throw while its fields were
+    /// emitted, which denied the type through the fault path and, with three such types, failed the
+    /// whole module. It is now refused by the shared skip conditions, and the refusal names the field.
+    /// </summary>
+    [Fact]
+    public void ByValueStructWithARecordlessField_IsSkippedNamingTheField()
+    {
+        var host = CreateFrozenStructWithStoredFields("CFunctionHost",
+            ("callback", TypeSpecParser.Parse("@convention[c] () -> Swift.Int64")!),
+            ("count", new NamedTypeSpec("Swift.Int64")));
+        var db = DatabaseAfterIngestion(host, ReferenceShapeDeclarations());
+
+        var match = TypeSkipConditions.FirstMatch(host, db, out _);
+
+        Assert.NotNull(match);
+        Assert.Equal(TypeSkipConditionKind.IndeterminateBufferLayout, match!.Kind);
+        Assert.Contains("'callback'", match.LayoutDetail);
+    }
+
+    /// <summary>
+    /// A class <c>Anchor</c>, a class-bound protocol <c>ClassBoundP</c> and an unbound <c>PlainP</c>,
+    /// declared in the module under ingestion.
+    /// </summary>
+    private static TypeDecl[] ReferenceShapeDeclarations()
+    {
+        var anchor = new ClassDecl
+        {
+            Name = "Anchor",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Anchor"),
+            MangledName = "$s10TestModule6AnchorCN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+        var classBound = TestDecls.Protocol("ClassBoundP");
+        classBound.IsClassBound = true;
+        var plain = TestDecls.Protocol("PlainP");
+        return new TypeDecl[] { anchor, classBound, plain };
+    }
+
+    #endregion
+
     #region ~Copyable by-value projection (HasNonCopyableValueProjection)
 
     [Fact]

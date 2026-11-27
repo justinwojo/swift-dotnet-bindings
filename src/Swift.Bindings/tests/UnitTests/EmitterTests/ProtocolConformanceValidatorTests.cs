@@ -847,6 +847,28 @@ public class ProtocolConformanceValidatorTests
         Assert.True(result);
     }
 
+    // A Swift class's C# projection carries a `Payload` handle, so its witness `payload()` is emitted
+    // as `PayloadMethod` and cannot implement the interface's `Payload()`. The prediction has to see
+    // the generated member too, or it keeps a conformance the class never satisfies (CS0535).
+    [Fact]
+    public void CanFullyImplementProtocol_WitnessNamedLikeAGeneratedMember_DropsConformance()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var protocolDecl = CreateProtocolWithVoidMethod("Loader", "payload", moduleDecl);
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        var concreteType = CreateClassDecl("Loading", moduleDecl);
+        var witness = CreateVoidMethod("payload", moduleDecl);
+        witness.ParentDecl = concreteType;
+        concreteType.Methods.Add(witness);
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+
+        Assert.False(validator.CanFullyImplementProtocol(concreteType, protocolDecl));
+    }
+
     // Companion to AsyncWitnessOnGenericParent_DropsConformance: the SAME agreement-gate rejection
     // (async witness on an unspecialized generic parent → the emitter won't emit it) must be RESCUED
     // when the protocol requirement carries a direct extension default. The interface emits that

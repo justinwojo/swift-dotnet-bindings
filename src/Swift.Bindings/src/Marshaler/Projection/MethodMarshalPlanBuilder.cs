@@ -164,6 +164,7 @@ internal class MethodMarshalPlanBuilder
             IndirectResultConstructor = BuildIndirectResultSetup(isConstructor: true),
             IndirectResultMethod = BuildIndirectResultSetup(isConstructor: false),
             OptionalReturnBuffer = BuildOptionalReturnBufferSetup(),
+            ClassRequirementLines = BuildClassRequirementLines(),
             DeclarationLines = BuildDeclarationLines(),
             ClosureHandleDeclarationLines = BuildClosureHandleDeclarationLines(),
             GenericArgumentMarshallingLines = BuildGenericArgumentMarshallingLines(),
@@ -420,6 +421,42 @@ internal class MethodMarshalPlanBuilder
         pwtExpression =
             $"{helperContext.HelperClassName}.{helperMethodName}(TypeMetadata.GetTypeMetadataOrThrow<{csTypeParamName}>())";
         return true;
+    }
+
+    /// <summary>
+    /// Whether the member requires its generic parameter <paramref name="rawName"/> to be a class
+    /// (<c>T: AnyObject</c>), whether the member or its enclosing type declares it. C# carries no
+    /// such constraint, so the member accepts every type argument, while Swift reads the argument
+    /// as an object reference, or reaches the member through a conformance only a class has and
+    /// casts to it unconditionally.
+    /// </summary>
+    internal static bool MemberRequiresClass(MethodDecl method, string rawName)
+    {
+        if (method.GenericParameters.FirstOrDefault(p => p.TypeName == rawName) is { } parameter
+            && MarshallingHelpers.SignatureRequiresClass(method.ParsedGenericSignature, parameter))
+            return true;
+        return method.ParentDecl is TypeDecl parent
+            && parent.GenericParameters.FirstOrDefault(p => p.TypeName == rawName) is { } parentParameter
+            && MarshallingHelpers.SignatureRequiresClass(parent.ParsedTypeGenericSignature, parentParameter);
+    }
+
+    /// <summary>
+    /// One check per generic parameter the member requires to be a class, refusing a C# type
+    /// argument Swift would not accept before anything is acquired or sent to Swift.
+    /// </summary>
+    private IReadOnlyList<string> BuildClassRequirementLines()
+    {
+        if (IsClosedStaticFactoryAccessorCall())
+            return Array.Empty<string>();
+        var lines = new List<string>();
+        foreach (var genericParameter in _env.MethodDecl.GenericParameters)
+        {
+            if (!MemberRequiresClass(_env.MethodDecl, genericParameter.TypeName))
+                continue;
+            var csTypeParamName = _env.GenericTypeMapping[genericParameter.TypeName].TypeParameter;
+            lines.Add($"TypeMetadata.ThrowIfNotClassConstrained(TypeMetadata.GetTypeMetadataOrThrow<{csTypeParamName}>(), typeof({csTypeParamName}), \"{csTypeParamName}\");");
+        }
+        return lines;
     }
 
     /// <summary>

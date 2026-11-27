@@ -291,3 +291,128 @@ public func storedLayoutPaddedTextEcho(_ holder: StoredLayoutPaddedText) -> Stor
 public func storedLayoutPaddedTextLayout() -> String {
     "\(MemoryLayout<StoredLayoutPaddedText>.size)/\(MemoryLayout<StoredLayoutPaddedText>.stride)/\(MemoryLayout<StoredLayoutPaddedText>.offset(of: \.text)!)"
 }
+
+// MARK: A stored class reference is a strong reference the value owns
+//
+// A `@frozen` struct storing a class reference, a class-bound existential, an `Error` or a tuple
+// holding a class owns a +1 on that object. C# must give the value an owner that releases it, so
+// each holder below counts the objects it keeps alive and Swift checks it still holds the very
+// object C# handed it.
+
+/// Counts its live instances, so a holder that leaks or over-releases shows as a wrong count.
+public final class StoredLayoutTrackedRef: StoredLayoutTagged, StoredLayoutLabelled {
+    private static var live: Int32 = 0
+    public let value: Int
+    public init(value: Int) { self.value = value; Self.live += 1 }
+    deinit { Self.live -= 1 }
+    public static var liveCount: Int32 { live }
+    public var trackedTag: Int { value * 10 }
+    public var trackedLabel: String { "ref\(value)" }
+}
+
+// Requirement names stay unique in the module: protocols share one reverse-dispatch class, so a
+// same-named requirement of another type elsewhere would drop that class.
+public protocol StoredLayoutTagged: AnyObject { var trackedTag: Int { get } }
+public protocol StoredLayoutLabelled { var trackedLabel: String { get } }
+
+/// Carries a counted object, so the boxed error's lifetime shows in the live count.
+public struct StoredLayoutFailure: Error {
+    public let code: Int
+    let token: StoredLayoutTrackedRef
+    public init(code: Int) { self.code = code; self.token = StoredLayoutTrackedRef(value: code) }
+}
+
+/// `AnyObject`: one pointer. The field is reached only through Swift, so the value's storage and
+/// ownership are what C# exercises.
+@frozen public struct StoredLayoutObjectHolder {
+    fileprivate var object: AnyObject
+    public var count: Int
+    public init(ref: StoredLayoutTrackedRef, count: Int) { self.object = ref; self.count = count }
+}
+
+/// A class-bound existential: the object and one witness table.
+@frozen public struct StoredLayoutTaggedHolder {
+    public var item: any StoredLayoutTagged
+    public var count: Int
+    public init(item: any StoredLayoutTagged, count: Int) { self.item = item; self.count = count }
+}
+
+/// A class-bound composition: the object and two witness tables.
+@frozen public struct StoredLayoutLabelledHolder {
+    public var item: any StoredLayoutTagged & StoredLayoutLabelled
+    public var count: Int
+    public init(item: any StoredLayoutTagged & StoredLayoutLabelled, count: Int) { self.item = item; self.count = count }
+}
+
+/// `any Error`: one pointer to a boxed error.
+@frozen public struct StoredLayoutErrorHolder {
+    public var failure: any Error
+    public var count: Int
+    public init(failure: any Error, count: Int) { self.failure = failure; self.count = count }
+}
+
+/// A tuple whose first element is a class reference. It is private, so only its storage reaches
+/// C#: the reference still has to be released with the value.
+@frozen public struct StoredLayoutRefPairHolder {
+    private var pair: (StoredLayoutTrackedRef, Int)
+    public init(ref: StoredLayoutTrackedRef, count: Int) { self.pair = (ref, count) }
+    public var summary: String { "\(pair.0.value)/\(pair.1)" }
+    public func holds(_ ref: StoredLayoutTrackedRef) -> Bool { pair.0 === ref }
+}
+
+public func makeStoredLayoutObjectHolder(_ value: Int, _ count: Int) -> StoredLayoutObjectHolder {
+    StoredLayoutObjectHolder(ref: StoredLayoutTrackedRef(value: value), count: count)
+}
+public func storedLayoutObjectHolderName(_ holder: StoredLayoutObjectHolder) -> String {
+    "\((holder.object as? StoredLayoutTrackedRef)?.value ?? -1)/\(holder.count)"
+}
+public func storedLayoutObjectHolderHolds(_ holder: StoredLayoutObjectHolder, _ ref: StoredLayoutTrackedRef) -> Bool {
+    holder.object === ref
+}
+public func storedLayoutObjectHolderEcho(_ holder: StoredLayoutObjectHolder) -> StoredLayoutObjectHolder { holder }
+public func storedLayoutObjectHolderLayout() -> String {
+    "\(MemoryLayout<StoredLayoutObjectHolder>.size)/\(MemoryLayout<StoredLayoutObjectHolder>.stride)/\(MemoryLayout<StoredLayoutObjectHolder>.offset(of: \.count)!)"
+}
+
+public func makeStoredLayoutTaggedHolder(_ value: Int, _ count: Int) -> StoredLayoutTaggedHolder {
+    StoredLayoutTaggedHolder(item: StoredLayoutTrackedRef(value: value), count: count)
+}
+public func storedLayoutTaggedHolderName(_ holder: StoredLayoutTaggedHolder) -> String { "\(holder.item.trackedTag)/\(holder.count)" }
+public func storedLayoutTaggedHolderHolds(_ holder: StoredLayoutTaggedHolder, _ ref: StoredLayoutTrackedRef) -> Bool {
+    holder.item === ref
+}
+public func storedLayoutTaggedHolderEcho(_ holder: StoredLayoutTaggedHolder) -> StoredLayoutTaggedHolder { holder }
+public func storedLayoutTaggedHolderLayout() -> String {
+    "\(MemoryLayout<StoredLayoutTaggedHolder>.size)/\(MemoryLayout<StoredLayoutTaggedHolder>.stride)/\(MemoryLayout<StoredLayoutTaggedHolder>.offset(of: \.count)!)"
+}
+
+public func makeStoredLayoutLabelledHolder(_ value: Int, _ count: Int) -> StoredLayoutLabelledHolder {
+    StoredLayoutLabelledHolder(item: StoredLayoutTrackedRef(value: value), count: count)
+}
+public func storedLayoutLabelledHolderName(_ holder: StoredLayoutLabelledHolder) -> String {
+    "\(holder.item.trackedLabel)/\(holder.item.trackedTag)/\(holder.count)"
+}
+public func storedLayoutLabelledHolderEcho(_ holder: StoredLayoutLabelledHolder) -> StoredLayoutLabelledHolder { holder }
+public func storedLayoutLabelledHolderLayout() -> String {
+    "\(MemoryLayout<StoredLayoutLabelledHolder>.size)/\(MemoryLayout<StoredLayoutLabelledHolder>.stride)/\(MemoryLayout<StoredLayoutLabelledHolder>.offset(of: \.count)!)"
+}
+
+public func makeStoredLayoutErrorHolder(_ code: Int, _ count: Int) -> StoredLayoutErrorHolder {
+    StoredLayoutErrorHolder(failure: StoredLayoutFailure(code: code), count: count)
+}
+public func storedLayoutErrorHolderName(_ holder: StoredLayoutErrorHolder) -> String {
+    "\((holder.failure as? StoredLayoutFailure)?.code ?? -1)/\(holder.count)"
+}
+public func storedLayoutErrorHolderEcho(_ holder: StoredLayoutErrorHolder) -> StoredLayoutErrorHolder { holder }
+public func storedLayoutErrorHolderLayout() -> String {
+    "\(MemoryLayout<StoredLayoutErrorHolder>.size)/\(MemoryLayout<StoredLayoutErrorHolder>.stride)/\(MemoryLayout<StoredLayoutErrorHolder>.offset(of: \.count)!)"
+}
+
+public func makeStoredLayoutRefPairHolder(_ value: Int, _ count: Int) -> StoredLayoutRefPairHolder {
+    StoredLayoutRefPairHolder(ref: StoredLayoutTrackedRef(value: value), count: count)
+}
+public func storedLayoutRefPairHolderName(_ holder: StoredLayoutRefPairHolder) -> String { holder.summary }
+public func storedLayoutRefPairHolderEcho(_ holder: StoredLayoutRefPairHolder) -> StoredLayoutRefPairHolder { holder }
+public func storedLayoutRefPairHolderLayout() -> String {
+    "\(MemoryLayout<StoredLayoutRefPairHolder>.size)/\(MemoryLayout<StoredLayoutRefPairHolder>.stride)/0"
+}

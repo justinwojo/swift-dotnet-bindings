@@ -3083,7 +3083,9 @@ namespace BindingsGeneration
                     if (!emittedProperties.Add(property.Name))
                         continue;
 
-                    var csharpType = ResolvePropertyType(property, typeDatabase, moduleDecl.Name);
+                    // The interface narrows a Swift Int to int (ProtocolHandler.EmitInterfaceProperty);
+                    // a stub declaring nint implements nothing (CS0738).
+                    var csharpType = NativeIntOverloadEmitter.NarrowNativeIntType(ResolvePropertyType(property, typeDatabase, moduleDecl.Name));
                     var propertyName = NameProvider.GetPropertyName(property);
                     var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
                     var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();

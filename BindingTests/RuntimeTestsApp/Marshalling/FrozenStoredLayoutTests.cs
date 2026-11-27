@@ -173,6 +173,124 @@ public class FrozenStoredLayoutTests : TestBase
         AssertEqual("wrap/5", TestLibFunctions.StoredLayoutWrappedTextName(echoed), "a by-value argument returned unchanged");
     }
 
+    // A stored class reference is a strong reference the value owns. Each holder below is built by
+    // Swift and by C#, read back by Swift, checked to hold the very object C# gave it, and then
+    // disposed, after which no counted object may still be alive: a value that never released its
+    // reference, or released it twice, shows as a wrong count or a fault.
+
+    [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields, typeof(StoredLayoutObjectHolder.Buffer))]
+    public void TestAStoredAnyObjectIsOwnedAndReleased()
+    {
+        AssertBufferMatchesSwift<StoredLayoutObjectHolder.Buffer>(TestLibFunctions.GetStoredLayoutObjectHolderLayout(), "count_", "AnyObject, Int");
+        int baseline = StoredLayoutTrackedRef.LiveCount;
+
+        using (var fromSwift = TestLibFunctions.MakeStoredLayoutObjectHolder(4, 9))
+        {
+            AssertEqual(baseline + 1, StoredLayoutTrackedRef.LiveCount, "the returned value keeps its object alive");
+            AssertEqual("4/9", TestLibFunctions.StoredLayoutObjectHolderName(fromSwift), "Swift reads the returned value back");
+            AssertEqual(9, (int)fromSwift.Count, "C# reads the field after the reference");
+            using (var echoed = TestLibFunctions.StoredLayoutObjectHolderEcho(fromSwift))
+                AssertEqual("4/9", TestLibFunctions.StoredLayoutObjectHolderName(echoed), "a by-value argument returned unchanged");
+            AssertEqual(baseline + 1, StoredLayoutTrackedRef.LiveCount, "disposing the echoed copy releases only its own reference");
+        }
+        AssertEqual(baseline, StoredLayoutTrackedRef.LiveCount, "disposing the value releases the object it held");
+
+        var item = new StoredLayoutTrackedRef(6);
+        using (var fromCSharp = new StoredLayoutObjectHolder(item, 2))
+        {
+            AssertTrue(TestLibFunctions.StoredLayoutObjectHolderHolds(fromCSharp, item), "Swift sees the very object C# stored");
+            AssertEqual("6/2", TestLibFunctions.StoredLayoutObjectHolderName(fromCSharp), "Swift reads a C#-built value");
+            fromCSharp.Count = 3;
+            AssertEqual("6/3", TestLibFunctions.StoredLayoutObjectHolderName(fromCSharp), "a C# write lands in the field Swift reads");
+        }
+        item.Dispose();
+        AssertEqual(baseline, StoredLayoutTrackedRef.LiveCount, "the C#-built value released the object it retained");
+    }
+
+    [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields, typeof(StoredLayoutTaggedHolder.Buffer))]
+    public void TestAStoredClassBoundExistentialIsOwnedAndReleased()
+    {
+        AssertBufferMatchesSwift<StoredLayoutTaggedHolder.Buffer>(TestLibFunctions.GetStoredLayoutTaggedHolderLayout(), "count_", "any ClassBound, Int");
+        int baseline = StoredLayoutTrackedRef.LiveCount;
+
+        using (var fromSwift = TestLibFunctions.MakeStoredLayoutTaggedHolder(5, 7))
+        {
+            AssertEqual(baseline + 1, StoredLayoutTrackedRef.LiveCount, "the returned value keeps its object alive");
+            AssertEqual("50/7", TestLibFunctions.StoredLayoutTaggedHolderName(fromSwift), "Swift calls through the stored witness table");
+            using (var echoed = TestLibFunctions.StoredLayoutTaggedHolderEcho(fromSwift))
+                AssertEqual("50/7", TestLibFunctions.StoredLayoutTaggedHolderName(echoed), "a by-value argument returned unchanged");
+        }
+        AssertEqual(baseline, StoredLayoutTrackedRef.LiveCount, "disposing the value releases the object it held");
+
+        var item = new StoredLayoutTrackedRef(8);
+        using (var fromCSharp = new StoredLayoutTaggedHolder(item, 1))
+        {
+            AssertTrue(TestLibFunctions.StoredLayoutTaggedHolderHolds(fromCSharp, item), "Swift sees the very object C# stored");
+            AssertEqual("80/1", TestLibFunctions.StoredLayoutTaggedHolderName(fromCSharp), "Swift reads a C#-built value");
+        }
+        item.Dispose();
+        AssertEqual(baseline, StoredLayoutTrackedRef.LiveCount, "the C#-built value released the object it retained");
+    }
+
+    [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields, typeof(StoredLayoutLabelledHolder.Buffer))]
+    public void TestAStoredClassBoundCompositionIsOwnedAndReleased()
+    {
+        AssertBufferMatchesSwift<StoredLayoutLabelledHolder.Buffer>(TestLibFunctions.GetStoredLayoutLabelledHolderLayout(), "count_", "any ClassBound & Labelled, Int");
+        int baseline = StoredLayoutTrackedRef.LiveCount;
+
+        using (var fromSwift = TestLibFunctions.MakeStoredLayoutLabelledHolder(3, 4))
+        {
+            AssertEqual(baseline + 1, StoredLayoutTrackedRef.LiveCount, "the returned value keeps its object alive");
+            AssertEqual("ref3/30/4", TestLibFunctions.StoredLayoutLabelledHolderName(fromSwift), "Swift calls through both stored witness tables");
+            using (var echoed = TestLibFunctions.StoredLayoutLabelledHolderEcho(fromSwift))
+                AssertEqual("ref3/30/4", TestLibFunctions.StoredLayoutLabelledHolderName(echoed), "a by-value argument returned unchanged");
+        }
+        AssertEqual(baseline, StoredLayoutTrackedRef.LiveCount, "disposing the value releases the object it held");
+    }
+
+    [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields, typeof(StoredLayoutErrorHolder.Buffer))]
+    public void TestAStoredErrorIsOwnedAndReleased()
+    {
+        AssertBufferMatchesSwift<StoredLayoutErrorHolder.Buffer>(TestLibFunctions.GetStoredLayoutErrorHolderLayout(), "count_", "any Error, Int");
+        int baseline = StoredLayoutTrackedRef.LiveCount;
+
+        using (var fromSwift = TestLibFunctions.MakeStoredLayoutErrorHolder(12, 5))
+        {
+            AssertEqual(baseline + 1, StoredLayoutTrackedRef.LiveCount, "the boxed error keeps what it carries alive");
+            AssertEqual("12/5", TestLibFunctions.StoredLayoutErrorHolderName(fromSwift), "Swift casts the stored error back");
+            using (var echoed = TestLibFunctions.StoredLayoutErrorHolderEcho(fromSwift))
+                AssertEqual("12/5", TestLibFunctions.StoredLayoutErrorHolderName(echoed), "a by-value argument returned unchanged");
+        }
+        AssertEqual(baseline, StoredLayoutTrackedRef.LiveCount, "disposing the value releases the error box");
+    }
+
+    public void TestATupleHoldingAClassIsOwnedAndReleased()
+    {
+        var parts = TestLibFunctions.GetStoredLayoutRefPairHolderLayout().Split('/');
+        int size = int.Parse(parts[0]), stride = int.Parse(parts[1]);
+        int managed = System.Runtime.CompilerServices.Unsafe.SizeOf<StoredLayoutRefPairHolder.Buffer>();
+        AssertTrue(managed >= size && managed <= stride, $"(Ref, Int): the Buffer ({managed} bytes) spans Swift's size {size} and fits its stride {stride}");
+        int baseline = StoredLayoutTrackedRef.LiveCount;
+
+        using (var fromSwift = TestLibFunctions.MakeStoredLayoutRefPairHolder(2, 6))
+        {
+            AssertEqual(baseline + 1, StoredLayoutTrackedRef.LiveCount, "the returned value keeps its object alive");
+            AssertEqual("2/6", TestLibFunctions.StoredLayoutRefPairHolderName(fromSwift), "Swift reads the tuple back");
+            using (var echoed = TestLibFunctions.StoredLayoutRefPairHolderEcho(fromSwift))
+                AssertEqual("2/6", echoed.Summary, "a by-value argument returned unchanged");
+        }
+        AssertEqual(baseline, StoredLayoutTrackedRef.LiveCount, "disposing the value releases the object it held");
+
+        var item = new StoredLayoutTrackedRef(9);
+        using (var fromCSharp = new StoredLayoutRefPairHolder(item, 4))
+        {
+            AssertTrue(fromCSharp.Holds(item), "Swift sees the very object C# stored");
+            AssertEqual("9/4", fromCSharp.Summary, "Swift reads a C#-built value");
+        }
+        item.Dispose();
+        AssertEqual(baseline, StoredLayoutTrackedRef.LiveCount, "the C#-built value released the object it retained");
+    }
+
     /// <summary>
     /// The managed Buffer against Swift's own <c>MemoryLayout</c> (size/stride/offset): at least the
     /// value's size and no wider than its stride, and the named member at Swift's offset of that field.

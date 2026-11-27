@@ -429,6 +429,7 @@ namespace BindingsGeneration
                     propertyNames.Add(NameProvider.GetEmittedNestedTypeLeafName(nestedType, env.TypeDatabase));
                 // The native-width companions the property pass just placed are properties too.
                 NameProvider.AddNativeWidthCompanionNames(structDecl, propertyNames);
+                NameProvider.AddSynthesizedMemberNames(structDecl, env.TypeDatabase, propertyNames);
 
                 SubscriptHandler.EmitSubscripts(csWriter, swiftWriter, structDecl, env.TypeDatabase, conductor, childContext, _logger);
 
@@ -572,6 +573,12 @@ namespace BindingsGeneration
             if (optionalIndeterminate)
                 return FrozenFieldLayoutKind.Indeterminate;
 
+            // A tuple, a function value or a protocol composition has no record and no C# field type
+            // to mirror it by, so only Swift's layout of it can place it; the Buffer planner does that
+            // ahead of this classification, and without that plan the struct is not laid out.
+            if (fieldTypeSpec is not NamedTypeSpec && !(fieldTypeSpec is TupleTypeSpec { IsEmptyTuple: true }))
+                return FrozenFieldLayoutKind.Indeterminate;
+
             // Direct (non-optional) stored field.
             if (!typeDatabase.TryGetTypeRecord(fieldTypeSpec, out var fieldRecord))
                 return FrozenFieldLayoutKind.TypedField; // unresolved → fall back to a typed C# field (existing behavior)
@@ -638,12 +645,19 @@ namespace BindingsGeneration
         /// </summary>
         internal static bool HasIndeterminateBufferLayout(StructDecl structDecl, ITypeDatabase typeDatabase)
         {
-            if (!typeDatabase.TryGetTypeRecord(structDecl.SwiftTypeName, out var typeRecord) ||
-                !MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord))
+            if (!typeDatabase.TryGetTypeRecord(structDecl.SwiftTypeName, out var typeRecord))
                 return false;
-            // Swift's layout of every stored field is known: the Buffer is planned from it, and whether
-            // it fits is HasBufferLayoutMismatch's question.
-            if (FrozenBufferLayout.TryPlan(structDecl, typeDatabase) is not null)
+            if (MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord))
+            {
+                // Swift's layout of every stored field is known: the Buffer is planned from it, and
+                // whether it fits is HasBufferLayoutMismatch's question.
+                if (FrozenBufferLayout.TryPlan(structDecl, typeDatabase) is not null)
+                    return false;
+            }
+            // A by-value frozen struct mirrors each stored field by its own field, so one this
+            // classification cannot place (a field with no record, an over-aligned one) leaves it
+            // with no layout either.
+            else if (!structDecl.IsFrozen || !MarshallingHelpers.IsTypeFrozen(typeRecord))
                 return false;
 
             foreach (var propertyDecl in structDecl.Properties)
@@ -658,6 +672,11 @@ namespace BindingsGeneration
 
             return false;
         }
+
+        /// <summary>The first stored instance property whose type has no record (a tuple, a function value, a composition).</summary>
+        internal static PropertyDecl? RecordlessStoredField(StructDecl structDecl) =>
+            structDecl.Properties.FirstOrDefault(p => p.HasStorage && !p.IsStatic
+                && p.SwiftTypeSpec is not NamedTypeSpec && p.SwiftTypeSpec is not TupleTypeSpec { IsEmptyTuple: true });
 
         /// <summary>
         /// True when <paramref name="structDecl"/> is a frozen struct projected as a BY-VALUE C# struct

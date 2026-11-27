@@ -184,6 +184,152 @@ public class NameProviderRenameTests
 
     #endregion
 
+    #region Generated infrastructure members (Payload, PayloadBuffer, Buffer, Dispose)
+
+    /// <summary>
+    /// A projected type carries members of its own beside the Swift ones, by its projection shape.
+    /// A Swift property spelled like one of them took the same C# name (CS0102), and the C# verify
+    /// loop then withdrew it, or the type. The property takes the "Value" rename instead; a name the
+    /// shape does not synthesize keeps its spelling.
+    /// </summary>
+    [Theory]
+    [InlineData("buffer-struct", "payload,payloadBuffer,buffer,dispose,swiftHandle", "Payload,PayloadBuffer,Buffer,Dispose")]
+    [InlineData("opaque-struct", "payload,buffer,dispose", "Payload,Dispose")]
+    [InlineData("value-struct", "payload,dispose", "Dispose")]
+    [InlineData("class", "payload,buffer,dispose", "Payload,Dispose")]
+    [InlineData("objc-class", "payload,dispose", "")]
+    public void ComputePropertyRenames_InfrastructureMemberName_TakesTheValueRename(string shape, string properties, string renamed)
+    {
+        var (decl, db) = CreateInfrastructureShape(shape, properties.Split(','));
+
+        var renames = NameProvider.ComputePropertyRenames(decl, db);
+
+        var expected = renamed.Length == 0 ? Array.Empty<string>() : renamed.Split(',');
+        foreach (var property in properties.Split(','))
+        {
+            var pascal = char.ToUpperInvariant(property[0]) + property[1..];
+            if (expected.Contains(pascal))
+                Assert.Equal(pascal + "Value", renames.GetValueOrDefault(pascal));
+            else
+                Assert.False(renames.ContainsKey(pascal), $"{shape}: '{pascal}' is not synthesized on this shape and keeps its name");
+        }
+    }
+
+    /// <summary>
+    /// A method projecting onto a synthesized member (<c>payload(prefix:)</c> beside the
+    /// <c>Payload</c> handle) has to see it among its siblings to take the method rename.
+    /// <c>Dispose</c> stays out: a method projecting onto it already takes the inherited-method rename.
+    /// </summary>
+    [Theory]
+    [InlineData("buffer-struct", "Payload,PayloadBuffer,Buffer")]
+    [InlineData("opaque-struct", "Payload")]
+    [InlineData("class", "Payload")]
+    public void BuildSiblingMemberNames_IncludesTheSynthesizedMembers(string shape, string synthesized)
+    {
+        var (decl, db) = CreateInfrastructureShape(shape, Array.Empty<string>());
+
+        var siblings = NameProvider.BuildSiblingMemberNames(decl, db);
+
+        foreach (var name in synthesized.Split(','))
+            Assert.Contains(name, siblings);
+        Assert.DoesNotContain("Dispose", siblings);
+    }
+
+    [Fact]
+    public void BuildSiblingMemberNames_ValueStructAndObjCClass_AddNothing()
+    {
+        var (valueStruct, valueDb) = CreateInfrastructureShape("value-struct", Array.Empty<string>());
+        var (objcClass, objcDb) = CreateInfrastructureShape("objc-class", Array.Empty<string>());
+
+        Assert.DoesNotContain("Payload", NameProvider.BuildSiblingMemberNames(valueStruct, valueDb));
+        Assert.DoesNotContain("Payload", NameProvider.BuildSiblingMemberNames(objcClass, objcDb));
+    }
+
+    private static (TypeDecl Decl, TypeDatabase Db) CreateInfrastructureShape(string shape, string[] propertyNames)
+    {
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+        var swiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.Envelope");
+        var properties = propertyNames.Select(name => new PropertyDecl
+        {
+            Name = name,
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IsStatic = false,
+            HasStorage = true,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+        }).ToList();
+
+        TypeDecl decl;
+        TypeRecordFlags flags;
+        TypeRecordKind kind;
+        switch (shape)
+        {
+            case "class":
+            case "objc-class":
+                decl = new ClassDecl
+                {
+                    Name = "Envelope",
+                    SwiftTypeName = swiftName,
+                    MangledName = "$sN",
+                    Properties = properties,
+                    Methods = new List<MethodDecl>(),
+                    Types = new List<TypeDecl>(),
+                    Operators = new List<OperatorDecl>(),
+                    Subscripts = new List<SubscriptDecl>(),
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    Conformances = new List<TypeConformance>(),
+                    ParentDecl = moduleDecl,
+                    ModuleDecl = moduleDecl,
+                    IsObjCRooted = shape == "objc-class",
+                };
+                flags = TypeRecordFlags.RequiresMemoryManagement;
+                kind = TypeRecordKind.Class;
+                break;
+            default:
+                var structDecl = CreateStructDecl("Envelope", swiftName, moduleDecl);
+                structDecl.Properties.AddRange(properties);
+                structDecl.ParentDecl = moduleDecl;
+                structDecl.IsFrozen = shape != "opaque-struct";
+                decl = structDecl;
+                flags = shape switch
+                {
+                    "buffer-struct" => TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                    "value-struct" => TypeRecordFlags.Frozen,
+                    _ => TypeRecordFlags.RequiresMemoryManagement,
+                };
+                kind = TypeRecordKind.Struct;
+                break;
+        }
+        foreach (var property in properties)
+            property.ParentDecl = decl;
+
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        module.RegisterType(swiftName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Envelope"),
+            SwiftTypeName = swiftName,
+            MetadataAccessor = "$sMa",
+            Flags = flags,
+            Kind = kind,
+        });
+        var db = new TypeDatabase();
+        db.AddModuleDatabase(module);
+        return (decl, db);
+    }
+
+    #endregion
+
     #region ComputePropertyRenames Tests
 
     [Fact]

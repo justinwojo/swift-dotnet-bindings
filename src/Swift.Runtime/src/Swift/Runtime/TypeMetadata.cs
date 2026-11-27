@@ -221,6 +221,52 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
     }
 
     /// <summary>
+    /// Whether this type satisfies a Swift class requirement (<c>T: AnyObject</c>): a Swift,
+    /// Objective-C or foreign class, or an existential bound to classes with no witness tables
+    /// (<c>AnyObject</c>, an <c>@objc</c> protocol). It is the Swift runtime's own test, which
+    /// does not count a foreign reference type as a class.
+    /// </summary>
+    public bool SatisfiesClassConstraint
+    {
+        get
+        {
+            switch (Kind)
+            {
+                case TypeMetadataKind.Class:
+                case TypeMetadataKind.ObjCClassWrapper:
+                case TypeMetadataKind.ForeignClass:
+                    return true;
+                case TypeMetadataKind.Existential:
+                    // The flags word follows the kind: its low 24 bits count the witness tables, and
+                    // its top bit is set when the existential is NOT bound to classes.
+                    uint flags = unchecked((uint)Marshal.ReadInt32(handle, IntPtr.Size));
+                    return (flags & 0x80000000u) == 0 && (flags & 0x00FFFFFFu) == 0;
+                default:
+                    return false;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Throws when <paramref name="metadata"/>, a C# type argument's metadata, does not satisfy the
+    /// class requirement a Swift member places on it. Called before the member reaches Swift, where
+    /// a type argument that does not satisfy it ends the process.
+    /// </summary>
+    /// <param name="metadata">The type argument's Swift metadata.</param>
+    /// <param name="typeArgument">The C# type argument.</param>
+    /// <param name="typeParameterName">The generic parameter the requirement is on.</param>
+    /// <exception cref="ArgumentException">The type argument is not a class type to Swift.</exception>
+    public static void ThrowIfNotClassConstrained(TypeMetadata metadata, Type typeArgument, string typeParameterName)
+    {
+        if (!metadata.SatisfiesClassConstraint)
+        {
+            throw new ArgumentException(
+                $"This member requires its type argument {typeParameterName} to be a class type (Swift '{typeParameterName}: AnyObject'); '{typeArgument}' is not.",
+                typeParameterName);
+        }
+    }
+
+    /// <summary>
     /// Returns a pointer to the value witness table for the given type
     /// </summary>
     public unsafe ValueWitnessTable* ValueWitnessTable

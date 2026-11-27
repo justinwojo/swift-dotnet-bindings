@@ -93,7 +93,7 @@ public static class TypeSkipPrePass
 
             TypeSkipConditionKind.IndeterminateBufferLayout => (
                 SkipReason.IndeterminateStructLayout,
-                "Frozen struct has a stored field whose blitted Buffer size is not derivable cross-compile (generic value-type instantiation)."),
+                match.LayoutDetail ?? "Frozen struct has a stored field whose blitted Buffer size is not derivable cross-compile (generic value-type instantiation)."),
 
             TypeSkipConditionKind.BufferLayoutMismatch => (
                 SkipReason.IndeterminateStructLayout,

@@ -400,4 +400,54 @@ public class TypeMetadataTests : IClassFixture<TypeMetadataTests.TestFixture>
         Assert.NotNull(result);
         Assert.Equal(ProtocolConformanceDescriptor.Zero, result!.Value);
     }
+
+    /// <summary>
+    /// A Swift <c>T: AnyObject</c> requirement accepts what the Swift runtime accepts: any class,
+    /// and an existential bound to classes with no witness tables. A value type, <c>Any</c> and an
+    /// existential carrying a witness table are refused. Each case lays out the two metadata words
+    /// the check reads: the kind (an isa pointer for a class), then the existential flags.
+    /// </summary>
+    [Theory]
+    [InlineData(0x1_0000_0000L, 0u, true)]           // a class: an isa pointer above the kind range
+    [InlineData(0x200L, 0u, false)]                  // a struct
+    [InlineData(0x201L, 0u, false)]                  // an enum
+    [InlineData(0x203L, 0u, true)]                   // a foreign class
+    [InlineData(0x204L, 0u, false)]                  // a foreign reference type is not a class to Swift
+    [InlineData(0x305L, 0u, true)]                   // an Objective-C class wrapper
+    [InlineData(0x303L, 0u, true)]                   // AnyObject: class-bound, no witness tables
+    [InlineData(0x303L, 0x8000_0000u, false)]        // Any: not class-bound
+    [InlineData(0x303L, 1u, false)]                  // any P where P: AnyObject: one witness table
+    [InlineData(0x303L, 0x8000_0001u, false)]        // any P: one witness table, not class-bound
+    public static unsafe void SatisfiesClassConstraint_FollowsTheSwiftRuntimeRule(long kindWord, uint existentialFlags, bool expected)
+    {
+        var block = (long*)System.Runtime.InteropServices.NativeMemory.AllocZeroed(16);
+        try
+        {
+            block[0] = kindWord;
+            *(uint*)(block + 1) = existentialFlags;
+            var metadata = MakePhonyMetadata(block);
+
+            Assert.Equal(expected, metadata.SatisfiesClassConstraint);
+            if (expected)
+            {
+                TypeMetadata.ThrowIfNotClassConstrained(metadata, typeof(object), "T");
+            }
+            else
+            {
+                var refusal = Assert.Throws<ArgumentException>(() => TypeMetadata.ThrowIfNotClassConstrained(metadata, typeof(int), "T"));
+                Assert.Equal("T", refusal.ParamName);
+                Assert.Contains("System.Int32", refusal.Message);
+            }
+        }
+        finally
+        {
+            System.Runtime.InteropServices.NativeMemory.Free(block);
+        }
+    }
+
+    static unsafe TypeMetadata MakePhonyMetadata(long* handle)
+    {
+        var ci = typeof(TypeMetadata).GetConstructor(BindingFlags.NonPublic | BindingFlags.Instance, new Type[] { typeof(IntPtr) })!;
+        return (TypeMetadata)ci.Invoke(new object[] { (IntPtr)handle });
+    }
 }

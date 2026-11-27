@@ -598,6 +598,10 @@ public class ProtocolConformanceValidator
             // — the class ends up declaring an interface member it never defines (CS0535). Seed
             // from the same fact the emitter seeds from so the prediction tracks the emission.
             NameProvider.SeedObjCRootedInheritedPropertyNames(concretePropertyNames, concreteType);
+            // Likewise the members the generator adds to the type's C# projection (the Payload
+            // handle, a Buffer-backed struct's PayloadBuffer and Buffer): a witness projecting onto
+            // one is emitted with the method rename, so the prediction must see them too.
+            NameProvider.AddSynthesizedMemberNames(concreteType, _typeDatabase, concretePropertyNames);
             // Predict via ForMethod — the SAME context builder the emitted name
             // (MethodEnvironment.CSharpMethodName) derives from — so the prediction can never
             // silently drop a collision-shaping axis (e.g. ParentGenericParameterNames: a witness

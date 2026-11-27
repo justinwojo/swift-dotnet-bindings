@@ -69,6 +69,75 @@ public class ClassBoundGenericReferenceTests
         Assert.Equal(expected, MarshallingHelpers.ReturnsGenericAsSwiftReference(env));
     }
 
+    /// <summary>
+    /// The parser leaves <c>AnyObject</c> out of a parameter's conformances (it is a layout
+    /// constraint, not a protocol), so a parameter bound to classes by <c>AnyObject</c> alone was
+    /// taken for an address-only one: the direct import passed the address of a buffer where Swift
+    /// reads the object reference itself. The signature still carries it, in either dump dialect,
+    /// whether the type or the member declares it.
+    /// </summary>
+    [Theory]
+    [InlineData("<τ_0_0 where τ_0_0 : AnyObject>", false)]
+    [InlineData("<τ_0_0 : AnyObject>", false)]
+    [InlineData("<V where V : AnyObject>", false)]
+    [InlineData("<τ_0_0 where τ_0_0 : AnyObject>", true)]
+    [InlineData("<V where V : AnyObject>", true)]
+    public void AnyObjectInTheSignatureAlone_IsClassBound(string signature, bool declaredByTheType)
+    {
+        var (moduleDecl, typeDb) = CreateEnvironment();
+        var parent = CreateGenericClass(moduleDecl, constraint: null);
+        var method = CreateMethod("exchange", parent, moduleDecl, Generic(), Param("other", Generic()));
+        if (declaredByTheType)
+            parent.RawGenericSig = signature;
+        else
+            method.RawGenericSig = signature;
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.True(MarshallingHelpers.IsClassBoundGenericParameter(env, Generic()));
+        Assert.True(MarshallingHelpers.PassesGenericAsSwiftReference(env, method.CSSignature[1]));
+        Assert.True(MarshallingHelpers.ReturnsGenericAsSwiftReference(env));
+        Assert.True(MethodMarshalPlanBuilder.MemberRequiresClass(method, "τ_0_0"));
+    }
+
+    [Theory]
+    [InlineData("<τ_0_0 where τ_0_0 : TestModule.AnyObject>")]
+    [InlineData("<τ_0_0, τ_0_1 where τ_0_1 : AnyObject>")]
+    [InlineData("<τ_0_0 where τ_0_0 : TestModule.Keyed>")]
+    public void OtherRequirements_AreNotAClassBound(string signature)
+    {
+        var (moduleDecl, typeDb) = CreateEnvironment();
+        var parent = CreateGenericClass(moduleDecl, constraint: null);
+        var method = CreateMethod("exchange", parent, moduleDecl, Generic(), Param("other", Generic()));
+        method.RawGenericSig = signature;
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.False(MarshallingHelpers.IsClassBoundGenericParameter(env, Generic()));
+        Assert.False(MethodMarshalPlanBuilder.MemberRequiresClass(method, "τ_0_0"));
+    }
+
+    /// <summary>
+    /// C# cannot constrain the type argument, so a value type would reach Swift as the "reference":
+    /// the body refuses it in managed code first, ahead of the receiver's AddRef so the refusal has
+    /// nothing to release, then passes the reference itself.
+    /// </summary>
+    [Fact]
+    public void AnyObjectRequirement_RefusesANonClassArgumentBeforeAnythingIsAcquired()
+    {
+        var (moduleDecl, typeDb) = CreateEnvironment();
+        var parent = CreateGenericClass(moduleDecl, constraint: null);
+        var method = CreateMethod("exchange", parent, moduleDecl, Generic(), Param("other", Generic()));
+        method.RawGenericSig = "<τ_0_0 where τ_0_0 : AnyObject>";
+
+        var (pinvoke, body) = Emit(method, typeDb);
+
+        var check = body.IndexOf("TypeMetadata.ThrowIfNotClassConstrained(", StringComparison.Ordinal);
+        Assert.True(check >= 0, body);
+        var addRef = body.IndexOf("DangerousAddRef", StringComparison.Ordinal);
+        Assert.True(addRef < 0 || check < addRef, "the class check precedes the receiver's AddRef");
+        Assert.Contains("IntPtr otherPayloadReference = *(IntPtr*)otherPayload;", body);
+        Assert.Matches(@"partial IntPtr PInvoke_exchange_\w+\( IntPtr otherPayloadReference,  SwiftSelf self\);", pinvoke);
+    }
+
     [Fact]
     public void ACdeclWrapperKeepsTheAddress()
     {

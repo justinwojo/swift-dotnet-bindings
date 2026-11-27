@@ -394,6 +394,14 @@ namespace BindingsGeneration
                         || StoresClientAddressOnlyValue(propertyDecl.SwiftTypeSpec, bound: null, layoutWalk)))
                     flags &= ~TypeRecordFlags.Frozen;
 
+                // A stored strong reference makes the value one that copying must retain and
+                // destroying must release, so the struct needs a managed payload. The record test
+                // below sees only a named field whose own record says so; this one also sees a
+                // reference held by an AnyObject, a class-bound or Error existential, a closure's
+                // context, or a tuple element, none of which has such a record.
+                if (stored && StoresStrongReference(propertyDecl.SwiftTypeSpec, depth: 0))
+                    flags |= TypeRecordFlags.RequiresMemoryManagement;
+
                 if (propertyDecl.SwiftTypeSpec is not NamedTypeSpec namedPropertyType)
                     continue;
 
@@ -457,6 +465,65 @@ namespace BindingsGeneration
             }
 
             return flags;
+        }
+
+        /// <summary>
+        /// Whether a value of <paramref name="spec"/>, stored inline, holds a strong reference Swift
+        /// retains when it copies the value and releases when it destroys it: a class instance, an
+        /// <c>AnyObject</c>, a class-bound or <c>Error</c> existential (one reference, the Error's to
+        /// its box), a Swift or block function value (the context, or the block), any of those
+        /// inside an Optional or a tuple, and a type whose record says it needs memory management.
+        /// A C or thin function pointer, a metatype and a trivial value hold none. An address-only
+        /// value is not answered here: storing one already leaves the struct non-frozen.
+        /// </summary>
+        private bool StoresStrongReference(TypeSpec spec, int depth)
+        {
+            if (depth > 16)
+                return false;
+            switch (spec)
+            {
+                case TupleTypeSpec tuple:
+                    return tuple.Elements.Any(element => StoresStrongReference(element, depth + 1));
+
+                case ClosureTypeSpec closure:
+                    if (closure.IsConventionC)
+                        return false;
+                    var convention = closure.HasAttributes
+                        ? closure.Attributes.FirstOrDefault(a => a.Name == "convention" && a.Parameters.Count == 1)?.Parameters[0]
+                        : null;
+                    return convention is not ("c" or "thin");
+
+                case ProtocolListTypeSpec composition:
+                    return !composition.IsOpaque && !IsAddressOnlyComposition(composition);
+
+                case NamedTypeSpec named:
+                    if (named.Name == "Swift.Optional" && named.GenericParameters.Count == 1 && named.InnerType is null)
+                        return StoresStrongReference(named.GenericParameters[0], depth + 1);
+                    var name = SwiftLayoutResolver.FullNameOf(named);
+                    if (name is "AnyObject" or "Swift.AnyObject" or "Swift.Error")
+                        return true;
+                    if (!named.HasModule())
+                        return false;
+                    if (TryGetOwnDeclaration(named, out var ownDecl))
+                    {
+                        switch (ownDecl)
+                        {
+                            case ClassDecl:
+                                return true;
+                            case ProtocolDecl ownProtocol:
+                                return IsClassBound(ownProtocol);
+                        }
+                    }
+                    if (!TryGetTypeRecord(named, out var record))
+                        return false;
+                    return record.Kind == TypeRecordKind.Class
+                        || (record.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0
+                        || (record.Kind == TypeRecordKind.Protocol
+                            && (record.Flags & (TypeRecordFlags.ClassBound | TypeRecordFlags.ObjCProtocol)) != 0);
+
+                default:
+                    return false;
+            }
         }
 
         /// <summary>

@@ -1755,7 +1755,8 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Validates every noncopyable argument before marshalling and holds its handle until the
+        /// Refuses a generic argument that is not the class Swift requires, then validates every
+        /// noncopyable argument before marshalling and holds its handle until the
         /// method exits. The outer lease spans both the native call and its subsequent consumed mark;
         /// an automatic P/Invoke lease alone ends too early when Dispose races native consumption.
         /// Capturing the payload also avoids re-reading a disposed wrapper after native return.
@@ -1763,6 +1764,10 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitNonCopyableArgumentPreflight(CSharpWriter csWriter)
         {
+            // A generic argument Swift requires to be a class is refused first, before any pin or
+            // AddRef below would need releasing.
+            foreach (var line in _syncPlan.ClassRequirementLines)
+                csWriter.WriteLine(line);
             foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1))
             {
                 if (!_env.TypeDatabase.TryGetTypeRecord(argumentDecl.SwiftTypeSpec, out var record)

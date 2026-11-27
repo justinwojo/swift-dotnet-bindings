@@ -1752,6 +1752,7 @@ public static class NameProvider
         foreach (var nestedType in typeDecl.Types)
             set.Add(GetEmittedNestedTypeLeafName(nestedType, typeDatabase));
         AddNativeWidthCompanionNames(typeDecl, set);
+        AddSynthesizedMemberNames(typeDecl, typeDatabase, set);
         return set;
     }
 
@@ -1868,9 +1869,8 @@ public static class NameProvider
         // They never yield, so a case or property projecting onto one of them (`case payload(Int)`
         // → factory `Payload`) takes the member-side Value rename, as a case named like the enum
         // does, even when a nested type of that name was renamed instead (`var payload: Payload`).
-        IEnumerable<string>? synthesizedMemberNames = typeDecl is EnumDecl { IsNamespaceEnum: false } && !IsSimpleEnumRecord(typeDecl, typeDatabase)
-            ? ClassEnumInfrastructureMemberNames
-            : null;
+        // A struct or a Swift class carries its own such members, by its projection.
+        IEnumerable<string>? synthesizedMemberNames = SynthesizedMemberNames(typeDecl, typeDatabase);
         if (enclosingMemberName != null)
             synthesizedMemberNames = (synthesizedMemberNames ?? Array.Empty<string>()).Append(enclosingMemberName);
 
@@ -1888,6 +1888,78 @@ public static class NameProvider
     /// </summary>
     internal static readonly IReadOnlyList<string> ClassEnumInfrastructureMemberNames =
         new[] { "Payload", "Dispose", "CaseTag", CaseDiscriminatorName };
+
+    /// <summary>
+    /// Public members a frozen struct projected as a class over a <c>Buffer</c> carries: the
+    /// <c>Payload</c> handle, the <c>PayloadBuffer</c> view, the nested <c>Buffer</c> struct and
+    /// <c>Dispose()</c> (FrozenStructHandler's class path).
+    /// </summary>
+    internal static readonly IReadOnlyList<string> BufferStructInfrastructureMemberNames =
+        new[] { "Payload", "PayloadBuffer", "Buffer", "Dispose" };
+
+    /// <summary>
+    /// Public members a Swift class (not rooted in NSObject) and a struct projected as a class over
+    /// an opaque payload carry: the <c>Payload</c> handle and <c>Dispose()</c>. A derived class
+    /// inherits them from its root.
+    /// </summary>
+    internal static readonly IReadOnlyList<string> HandleInfrastructureMemberNames = new[] { "Payload", "Dispose" };
+
+    /// <summary>Public members a frozen struct projected as a C# struct carries: <c>Dispose()</c>.</summary>
+    internal static readonly IReadOnlyList<string> ValueStructInfrastructureMemberNames = new[] { "Dispose" };
+
+    /// <summary>
+    /// The public members the generator adds to <paramref name="typeDecl"/>'s C# type whatever the
+    /// Swift type declares, by the shape it is projected as, or null when it adds none a Swift
+    /// member could project onto. A Swift member of the same name yields to them.
+    /// </summary>
+    internal static IReadOnlyList<string>? SynthesizedMemberNames(TypeDecl typeDecl, ITypeDatabase typeDatabase)
+    {
+        // This module's extension of another module's type is emitted as extension members, beside
+        // none of these.
+        if (typeDecl is not EnumDecl && IsForeignExtension(typeDecl))
+            return null;
+        switch (typeDecl)
+        {
+            case EnumDecl { IsNamespaceEnum: false } when !IsSimpleEnumRecord(typeDecl, typeDatabase):
+                return ClassEnumInfrastructureMemberNames;
+            case ClassDecl classDecl:
+                return classDecl.IsObjCRooted ? null : HandleInfrastructureMemberNames;
+            case StructDecl structDecl:
+                if (!typeDatabase.TryGetTypeRecord(structDecl.SwiftTypeName, out var record) || record.Kind != TypeRecordKind.Struct)
+                    return null;
+                if (MarshallingHelpers.IsFrozenStructProjectedAsClass(record))
+                    return BufferStructInfrastructureMemberNames;
+                return structDecl.IsFrozen && MarshallingHelpers.IsTypeFrozen(record)
+                    ? ValueStructInfrastructureMemberNames
+                    : HandleInfrastructureMemberNames;
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>A top-level declaration of a type another module owns: an extension of it.</summary>
+    private static bool IsForeignExtension(TypeDecl typeDecl)
+        => typeDecl.ParentDecl is ModuleDecl
+           && !string.IsNullOrEmpty(typeDecl.SwiftTypeName.Module)
+           && typeDecl.ModuleDecl is { } module
+           && !string.Equals(typeDecl.SwiftTypeName.Module, module.Name, StringComparison.Ordinal);
+
+    /// <summary>
+    /// Adds the members the generator synthesizes on <paramref name="typeDecl"/>'s C# type to the
+    /// sibling names a method must clear, so a Swift method projecting onto one (<c>payload()</c>
+    /// beside the <c>Payload</c> handle) takes the method-side rename. <c>Dispose</c> is left out:
+    /// a method projecting onto it already takes the inherited-method rename.
+    /// </summary>
+    public static void AddSynthesizedMemberNames(TypeDecl typeDecl, ITypeDatabase typeDatabase, HashSet<string> names)
+    {
+        if (typeDecl is not (StructDecl or ClassDecl) || SynthesizedMemberNames(typeDecl, typeDatabase) is not { } synthesized)
+            return;
+        foreach (var name in synthesized)
+        {
+            if (name != "Dispose")
+                names.Add(name);
+        }
+    }
 
     /// <summary>The discriminator's name in a class that is itself named <c>Tag</c> (CS0542).</summary>
     internal const string CaseDiscriminatorFallbackName = "TagValue";

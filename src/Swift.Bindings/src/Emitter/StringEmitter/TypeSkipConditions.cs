@@ -169,7 +169,14 @@ public static class TypeSkipConditions
         if (typeDecl is StructDecl structDecl)
         {
             if (FrozenStructHandler.HasIndeterminateBufferLayout(structDecl, typeDatabase))
-                return new TypeSkipMatch { Kind = TypeSkipConditionKind.IndeterminateBufferLayout, Subject = subject };
+                return new TypeSkipMatch
+                {
+                    Kind = TypeSkipConditionKind.IndeterminateBufferLayout,
+                    LayoutDetail = FrozenStructHandler.RecordlessStoredField(structDecl) is { } recordless
+                        ? $"Frozen struct stored property '{recordless.Name}' is a '{recordless.SwiftTypeSpec}', which has no C# field type to mirror it by, and Swift's layout of the struct is not known; a guessed field would mis-size the value."
+                        : null,
+                    Subject = subject,
+                };
 
             if (FrozenStructHandler.HasBufferLayoutMismatch(structDecl, typeDatabase, out var layoutDetail))
                 return new TypeSkipMatch { Kind = TypeSkipConditionKind.BufferLayoutMismatch, LayoutDetail = layoutDetail, Subject = subject };
@@ -281,7 +288,8 @@ public static class TypeSkipConditions
             {
                 // A guessed Buffer layout would mis-size the blitted field and corrupt the
                 // heap, so the handler fails closed (see HasIndeterminateBufferLayout).
-                const string detail = "stored property has a generic value-type layout whose per-instantiation size is not derivable cross-compile (e.g. ClosedRange<Bound>, Result<Success,Failure>); a blitted Buffer would mis-size the field.";
+                var detail = match.LayoutDetail
+                    ?? "stored property has a generic value-type layout whose per-instantiation size is not derivable cross-compile (e.g. ClosedRange<Bound>, Result<Success,Failure>); a blitted Buffer would mis-size the field.";
                 ReportCollector.RecordTypeSkipped(typeDecl, SkipReason.IndeterminateStructLayout, detail);
                 UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, SkipReason.IndeterminateStructLayout, detail, typeDecl.ParentDecl, match.Subject);
                 logger.LogWarning(

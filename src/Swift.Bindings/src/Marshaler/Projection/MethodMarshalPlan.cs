@@ -177,6 +177,12 @@ public record SyncMethodPlan
     /// <summary>Optional return buffer setup for large Optional returns (null when not needed).</summary>
     public OptionalPointerWrapperSetup? OptionalReturnBuffer { get; init; }
 
+    /// <summary>
+    /// Checks that each generic argument the member requires to be a class is one, emitted ahead of
+    /// every acquisition (handle AddRef, allocation) so a refusal leaves nothing to release.
+    /// </summary>
+    public IReadOnlyList<string> ClassRequirementLines { get; init; } = Array.Empty<string>();
+
     /// <summary>Declaration lines emitted before the try block (TypeMetadata, IntPtr, GCHandle).</summary>
     public IReadOnlyList<string> DeclarationLines { get; init; } = Array.Empty<string>();
 
