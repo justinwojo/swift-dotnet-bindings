@@ -94,8 +94,10 @@ namespace BindingsGeneration.Tests
             }
         });
 
-        [Fact]
-        public void DiamondSecondRequest_WaitsForTheWrapperCompile()
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void DiamondSecondRequest_WaitsForTheWrapperCompile(bool resourcesFirst)
         {
             // App builds A and B in parallel; B builds A again, so two requests share A's
             // configuration. Two barriers fix the interleaving, so the result never depends on
@@ -113,12 +115,15 @@ namespace BindingsGeneration.Tests
             // between: each reader either waits for the compile or reads the files before it ran.
             // Without the DependsOnTargets edges the second request reads HasWrapperXCFramework=False
             // and fails with SWIFTBIND051, and no resource bundle is collected.
+            // Whichever reader runs first waits for the compile on behalf of the other, so each
+            // order proves one edge: native references first proves the wrapper-metadata edge,
+            // resources first proves the resource-bundle edge.
             SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
             var stubDir = WrapperStubGeneratorDir.Value;
             SkipUnless(stubDir != null, "Could not build the wrapper stub generator");
 
             var probe = Path.Combine(_tempDir, "probe");
-            WriteDiamond(stubDir!, probe);
+            WriteDiamond(stubDir!, probe, resourcesFirst);
 
             var (restoreExit, restoreOut) = Run("dotnet",
                 $"restore \"{Path.Combine(_tempDir, "A", "A.csproj")}\" --nologo -v:q", _tempDir, TimeSpan.FromMinutes(3));
@@ -183,7 +188,7 @@ namespace BindingsGeneration.Tests
                 .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         }
 
-        private void WriteDiamond(string stubDir, string probe)
+        private void WriteDiamond(string stubDir, string probe, bool resourcesFirst)
         {
             var repoRoot = FindRepoRoot();
             var sdkDir = Path.Combine(repoRoot, "src", "Swift.Bindings.Sdk", "Sdk");
@@ -226,11 +231,17 @@ namespace BindingsGeneration.Tests
                 </Project>
                 """);
 
-            // The binding: the real Sdk.props/Sdk.targets with the stub generator. The probe
-            // targets sit before the Sdk.targets import so they run ahead of the SDK's own
-            // ResolveNativeReferences hook. _CollectBundleResources stands in for the Apple
-            // workload's collection target, and ResolveNativeReferences for its native-reference
-            // resolution (the desktop task refuses to run on .NET).
+            // The binding: the real Sdk.props/Sdk.targets with the stub generator. Hooks on one
+            // target run in declaration order, so the marker sits before the Sdk.targets import
+            // to run ahead of the SDK's own ResolveNativeReferences hook, and the resource probe
+            // sits before or after it as the test case asks. _CollectBundleResources stands in for
+            // the Apple workload's collection target, and ResolveNativeReferences for its
+            // native-reference resolution (the desktop task refuses to run on .NET).
+            var resourceProbe = $"""
+                  <Target Name="_DiamondCollectResources" BeforeTargets="ResolveNativeReferences" DependsOnTargets="_CollectBundleResources">
+                    <WriteLinesToFile File="{Path.Combine(probe, "bundle-resources")}" Lines="@(BundleResource->'%(Link)')" Overwrite="true" />
+                  </Target>
+                """;
             File.WriteAllText(Path.Combine(root, "A", "A.csproj"), $"""
                 <Project>
                   <Import Project="{sdkDir}/Sdk.props" />
@@ -248,11 +259,10 @@ namespace BindingsGeneration.Tests
                   <Target Name="_DiamondSecondRequest" BeforeTargets="ResolveNativeReferences">
                     <WriteLinesToFile File="{secondRequest}" Lines="HasWrapper=$(_SwiftBindingHasWrapperXCFramework)" Overwrite="true" />
                   </Target>
-                  <Target Name="_DiamondCollectResources" BeforeTargets="ResolveNativeReferences" DependsOnTargets="_CollectBundleResources">
-                    <WriteLinesToFile File="{Path.Combine(probe, "bundle-resources")}" Lines="@(BundleResource->'%(Link)')" Overwrite="true" />
-                  </Target>
+                {(resourcesFirst ? resourceProbe : "")}
                   <Target Name="_CollectBundleResources" />
                   <Import Project="{sdkDir}/Sdk.targets" />
+                {(resourcesFirst ? "" : resourceProbe)}
                   <PropertyGroup>
                     <_SwiftBindingIntermediateDir>{intermediate}</_SwiftBindingIntermediateDir>
                   </PropertyGroup>
