@@ -2075,20 +2075,24 @@ public static class ExistentialContainerFactory
     // A generated wrapper's own type resolves its metadata. A C# subclass of a generated class
     // inherits the base's GetTypeMetadata, which a lookup on the subclass alone does not find, so
     // the walk stops at the first type in the chain that names a Swift type.
-    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2067",
-        Justification = "Each type walked is an ISwiftObject implementation whose GetTypeMetadata member is preserved for consumers by the shipped ILLink.Descriptors.xml, as for CreateAnyRuntime.")]
-    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2072",
-        Justification = "As above: a base type in the walk is an ISwiftObject implementation the descriptors preserve.")]
     private static TypeMetadata ResolveSwiftObjectMetadata(Type type)
     {
         for (Type? candidate = type; candidate is not null && typeof(ISwiftObject).IsAssignableFrom(candidate); candidate = candidate.BaseType)
         {
-            var metadata = SwiftObjectReflectionHelper.ResolveTypeMetadataCacheFirst(candidate);
+            var metadata = ResolvePreservedSwiftObjectMetadata(candidate);
             if (metadata.IsValid)
                 return metadata;
         }
         return TypeMetadata.Zero;
     }
+
+    // The one unannotated hand-off lives here, so the build-time analyzer and the app's trimmer see
+    // the same single warning; suppressing it on the walk above left one of them reporting the
+    // suppression as unused, which fails a trimmed app build that treats warnings as errors.
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2067",
+        Justification = "Each type walked is an ISwiftObject implementation whose GetTypeMetadata member is preserved for consumers by the shipped ILLink.Descriptors.xml, as for CreateAnyRuntime.")]
+    private static TypeMetadata ResolvePreservedSwiftObjectMetadata(Type type) =>
+        SwiftObjectReflectionHelper.ResolveTypeMetadataCacheFirst(type);
 
     private static ArgumentException NotAnObject(object value, string reason) =>
         new($"Cannot pass {value.GetType().FullName} as AnyObject: {reason}. AnyObject takes a Swift " +
