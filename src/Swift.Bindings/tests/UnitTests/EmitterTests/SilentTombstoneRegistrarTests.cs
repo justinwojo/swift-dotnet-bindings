@@ -355,7 +355,7 @@ public class SilentTombstoneRegistrarTests
     public void Precompute_BufferIndeterminateFrozenStructWithAllMembersSkipped_NotRegistered()
     {
         // A frozen Buffer-projected struct with a stored field whose inline size is not
-        // derivable cross-compile (a generic value-type instantiation) is skipped
+        // derivable cross-compile (another module's generic value-type instantiation) is skipped
         // entirely by FrozenStructHandler — emitting a guessed Buffer would corrupt the
         // heap. Like every total-type skip, it must never be registered as a silent
         // tombstone: no handler will ever emit it via the opaque branch, so a
@@ -366,7 +366,7 @@ public class SilentTombstoneRegistrarTests
         structDecl.Properties.Add(new PropertyDecl
         {
             Name = "range",
-            SwiftTypeSpec = new NamedTypeSpec("Swift.ClosedRange", new NamedTypeSpec("Swift.Int")),
+            SwiftTypeSpec = new NamedTypeSpec("OtherModule.Pairing", new NamedTypeSpec("Swift.Int")),
             IsStatic = false,
             HasStorage = true,
             Accessors = new List<AccessorDecl>(),
@@ -386,10 +386,10 @@ public class SilentTombstoneRegistrarTests
                 Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
                 Kind = TypeRecordKind.Struct,
             }),
-            (SwiftTypeName.FromModuleQualifiedName("Swift.ClosedRange"), new TypeRecord
+            (SwiftTypeName.FromModuleQualifiedName("OtherModule.Pairing"), new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Runtime", "ClosedRange"),
-                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.ClosedRange"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("OtherModule", "Pairing"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("OtherModule.Pairing"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
                 Kind = TypeRecordKind.Struct,

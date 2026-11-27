@@ -218,3 +218,76 @@ public func makeStoredLayoutWrappedText(_ text: String, _ count: Int) -> StoredL
 public func storedLayoutWrappedTextName(_ holder: StoredLayoutWrappedText) -> String { "\(holder.wrapped.value)/\(holder.count)" }
 public func storedLayoutWrappedTextCount(_ holder: StoredLayoutWrappedText) -> Int { holder.wrapped.value.count * 100 + holder.count }
 public func storedLayoutWrappedTextEcho(_ holder: StoredLayoutWrappedText) -> StoredLayoutWrappedText { holder }
+
+// MARK: Sub-word fields after a word keep Swift's packed offsets
+//
+// A one-byte Optional or a tag byte packs right after the field before it, so the field after it can
+// start off a word boundary. The value's managed Buffer has to place each field where Swift does and
+// be no wider than Swift's stride. `storedLayout…Layout()` reports Swift's own numbers.
+
+/// `StoredLayoutWrap<Int>`, a `UInt8?` and a `UInt8`: size 11, the tail at 10.
+@frozen public struct StoredLayoutWrappedFlags {
+    public var wrapped: StoredLayoutWrap<Int>
+    public var flag: UInt8?
+    public var tail: UInt8
+    public init(wrapped: StoredLayoutWrap<Int>, flag: UInt8?, tail: UInt8) { self.wrapped = wrapped; self.flag = flag; self.tail = tail }
+    public mutating func bumpTail() { tail &+= 1 }
+}
+
+public func makeStoredLayoutWrappedFlags(_ value: Int, _ flag: UInt8?, _ tail: UInt8) -> StoredLayoutWrappedFlags {
+    StoredLayoutWrappedFlags(wrapped: StoredLayoutWrap(value: value), flag: flag, tail: tail)
+}
+public func storedLayoutWrappedFlagsName(_ holder: StoredLayoutWrappedFlags) -> String {
+    "\(holder.wrapped.value)/\(holder.flag.map(String.init) ?? "nil")/\(holder.tail)"
+}
+public func storedLayoutWrappedFlagsEcho(_ holder: StoredLayoutWrappedFlags) -> StoredLayoutWrappedFlags { holder }
+public func storedLayoutWrappedFlagsBump(_ holder: inout StoredLayoutWrappedFlags) { holder.bumpTail() }
+public func storedLayoutWrappedFlagsLayout() -> String {
+    "\(MemoryLayout<StoredLayoutWrappedFlags>.size)/\(MemoryLayout<StoredLayoutWrappedFlags>.stride)/\(MemoryLayout<StoredLayoutWrappedFlags>.offset(of: \.tail)!)"
+}
+
+/// A `String`, an `Int16?` and a `UInt8`: size 20, the optional at 16, the tail at 19.
+@frozen public struct StoredLayoutTextFlags {
+    public var text: String
+    public var flag: Int16?
+    public var tail: UInt8
+    public init(text: String, flag: Int16?, tail: UInt8) { self.text = text; self.flag = flag; self.tail = tail }
+}
+
+public func makeStoredLayoutTextFlags(_ text: String, _ flag: Int16?, _ tail: UInt8) -> StoredLayoutTextFlags {
+    StoredLayoutTextFlags(text: text, flag: flag, tail: tail)
+}
+public func storedLayoutTextFlagsName(_ holder: StoredLayoutTextFlags) -> String {
+    "\(holder.text)/\(holder.flag.map(String.init) ?? "nil")/\(holder.tail)"
+}
+public func storedLayoutTextFlagsEcho(_ holder: StoredLayoutTextFlags) -> StoredLayoutTextFlags { holder }
+public func storedLayoutTextFlagsLayout() -> String {
+    "\(MemoryLayout<StoredLayoutTextFlags>.size)/\(MemoryLayout<StoredLayoutTextFlags>.stride)/\(MemoryLayout<StoredLayoutTextFlags>.offset(of: \.tail)!)"
+}
+
+/// One byte, then an Int: aligned to 8 though it starts with a byte.
+@frozen public struct StoredLayoutByteThenWord {
+    public var lead: UInt8
+    public var word: Int
+    public init(lead: UInt8, word: Int) { self.lead = lead; self.word = word }
+}
+
+/// A byte, the struct above at 8, then a `String` at 24: Swift leaves padding ahead of the inner
+/// struct that its own first byte does not reach.
+@frozen public struct StoredLayoutPaddedText {
+    public var lead: UInt8
+    public var inner: StoredLayoutByteThenWord
+    public var text: String
+    public init(lead: UInt8, inner: StoredLayoutByteThenWord, text: String) { self.lead = lead; self.inner = inner; self.text = text }
+}
+
+public func makeStoredLayoutPaddedText(_ lead: UInt8, _ innerLead: UInt8, _ word: Int, _ text: String) -> StoredLayoutPaddedText {
+    StoredLayoutPaddedText(lead: lead, inner: StoredLayoutByteThenWord(lead: innerLead, word: word), text: text)
+}
+public func storedLayoutPaddedTextName(_ holder: StoredLayoutPaddedText) -> String {
+    "\(holder.lead)/\(holder.inner.lead)/\(holder.inner.word)/\(holder.text)"
+}
+public func storedLayoutPaddedTextEcho(_ holder: StoredLayoutPaddedText) -> StoredLayoutPaddedText { holder }
+public func storedLayoutPaddedTextLayout() -> String {
+    "\(MemoryLayout<StoredLayoutPaddedText>.size)/\(MemoryLayout<StoredLayoutPaddedText>.stride)/\(MemoryLayout<StoredLayoutPaddedText>.offset(of: \.text)!)"
+}

@@ -95,6 +95,10 @@ public static class TypeSkipPrePass
                 SkipReason.IndeterminateStructLayout,
                 "Frozen struct has a stored field whose blitted Buffer size is not derivable cross-compile (generic value-type instantiation)."),
 
+            TypeSkipConditionKind.BufferLayoutMismatch => (
+                SkipReason.IndeterminateStructLayout,
+                $"Frozen struct's Buffer cannot match the Swift layout: {match.LayoutDetail}; a by-value pass would read or return the field from the wrong bytes."),
+
             TypeSkipConditionKind.SubWordOptionalLayoutMismatch => (
                 SkipReason.IndeterminateStructLayout,
                 "Frozen value struct mixes sub-word Optional<primitive> fields whose 8-byte IntPtr-word emission diverges from the Swift packed field offsets; a by-value pass would corrupt the field."),

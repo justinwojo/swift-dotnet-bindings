@@ -28,6 +28,11 @@ public enum TypeSkipConditionKind
     /// derivable cross-compile. Predicate: <see cref="FrozenStructHandler.HasIndeterminateBufferLayout"/>.</summary>
     IndeterminateBufferLayout,
 
+    /// <summary>Frozen Buffer-projected struct whose Buffer cannot hold Swift's layout: a stored
+    /// field sits at an offset no sequential member list reaches. Predicate:
+    /// <see cref="FrozenStructHandler.HasBufferLayoutMismatch"/>.</summary>
+    BufferLayoutMismatch,
+
     /// <summary>Frozen by-value struct whose emitted IntPtr-word optional fields shift a stored
     /// field off its Swift packed offset. Predicate: <see cref="FrozenStructHandler.HasSubWordOptionalLayoutMismatch"/>.</summary>
     SubWordOptionalLayoutMismatch,
@@ -68,6 +73,10 @@ public sealed class TypeSkipMatch
     /// <summary>Set when <see cref="Kind"/> is <see cref="TypeSkipConditionKind.EmitterFault"/>:
     /// the exception fingerprint captured when the type poisoned the previous attempt.</summary>
     public string? FaultDetails { get; init; }
+
+    /// <summary>Set when <see cref="Kind"/> is <see cref="TypeSkipConditionKind.BufferLayoutMismatch"/>:
+    /// where the Buffer departs from Swift's layout.</summary>
+    public string? LayoutDetail { get; init; }
 
     /// <summary>
     /// Identity of the type this match was evaluated against. Stamped by
@@ -161,6 +170,9 @@ public static class TypeSkipConditions
         {
             if (FrozenStructHandler.HasIndeterminateBufferLayout(structDecl, typeDatabase))
                 return new TypeSkipMatch { Kind = TypeSkipConditionKind.IndeterminateBufferLayout, Subject = subject };
+
+            if (FrozenStructHandler.HasBufferLayoutMismatch(structDecl, typeDatabase, out var layoutDetail))
+                return new TypeSkipMatch { Kind = TypeSkipConditionKind.BufferLayoutMismatch, LayoutDetail = layoutDetail, Subject = subject };
 
             if (FrozenStructHandler.HasSubWordOptionalLayoutMismatch(structDecl, typeDatabase))
                 return new TypeSkipMatch { Kind = TypeSkipConditionKind.SubWordOptionalLayoutMismatch, Subject = subject };
@@ -275,6 +287,20 @@ public static class TypeSkipConditions
                 logger.LogWarning(
                     "Skipping frozen struct '{TypeName}' - indeterminate Buffer layout (unsizeable generic value-type stored field).",
                     typeDecl.Name);
+                break;
+            }
+
+            case TypeSkipConditionKind.BufferLayoutMismatch:
+            {
+                // The Buffer is the value whenever it crosses by value, so a field it holds at another
+                // offset than Swift is read and returned from the wrong bytes (see HasBufferLayoutMismatch).
+                var detail = $"frozen struct's Buffer cannot match the Swift layout: {match.LayoutDetail}; a by-value pass would read or return the field from the wrong bytes.";
+                ReportCollector.RecordTypeSkipped(typeDecl, SkipReason.IndeterminateStructLayout, detail);
+                UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, SkipReason.IndeterminateStructLayout, detail, typeDecl.ParentDecl, match.Subject);
+                logger.LogWarning(
+                    "Skipping frozen struct '{TypeName}' - its Buffer cannot match the Swift layout: {Detail}.",
+                    typeDecl.Name,
+                    match.LayoutDetail);
                 break;
             }
 

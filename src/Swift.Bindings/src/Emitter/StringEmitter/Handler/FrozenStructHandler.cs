@@ -225,7 +225,18 @@ namespace BindingsGeneration
                 // Important: Direct access to these fields from C# will not provide the correct value - always
                 // use the generated property accessors which call into Swift.");
 
-                foreach (PropertyDecl propertyDecl in structDecl.Properties)
+                // A Buffer whose fields Swift's layout is known for mirrors it member by member (the skip
+                // conditions refused any it cannot); the rest keep the per-field emission below.
+                var bufferPlan = isProjectedAsClass ? FrozenBufferLayout.TryPlan(structDecl, env.TypeDatabase) : null;
+                if (bufferPlan is { Mismatch: { } mismatch })
+                {
+                    throw new InvalidOperationException(
+                        $"Frozen struct '{structDecl.Name}' reached Buffer emission with a layout Swift does not share ({mismatch}); it should have been skipped.");
+                }
+                if (bufferPlan is not null)
+                    EmitPlannedBufferFields(csWriter, bufferPlan);
+
+                foreach (PropertyDecl propertyDecl in bufferPlan is null ? structDecl.Properties : Enumerable.Empty<PropertyDecl>())
                 {
                     // A `static let`/`static var` has storage but lives in type-level metadata, not in the
                     // instance's value layout. Emitting it as a backing field over-sizes the Buffer mirror and
@@ -630,6 +641,10 @@ namespace BindingsGeneration
             if (!typeDatabase.TryGetTypeRecord(structDecl.SwiftTypeName, out var typeRecord) ||
                 !MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord))
                 return false;
+            // Swift's layout of every stored field is known: the Buffer is planned from it, and whether
+            // it fits is HasBufferLayoutMismatch's question.
+            if (FrozenBufferLayout.TryPlan(structDecl, typeDatabase) is not null)
+                return false;
 
             foreach (var propertyDecl in structDecl.Properties)
             {
@@ -697,6 +712,16 @@ namespace BindingsGeneration
                 MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord))
                 return false;
 
+            return EmittedOffsetsDiverge(structDecl, typeDatabase);
+        }
+
+        /// <summary>
+        /// Simulates the per-field emission's layout against Swift's and reports whether an over-padded
+        /// IntPtr-word field moves a later field. Bails (false) on any field whose layout is not
+        /// precisely derivable.
+        /// </summary>
+        private static bool EmittedOffsetsDiverge(StructDecl structDecl, ITypeDatabase typeDatabase)
+        {
             int swiftCursor = 0, csCursor = 0;
             bool anyOverPaddedOptional = false;
             bool offsetDiverged = false;
@@ -706,7 +731,7 @@ namespace BindingsGeneration
                 // cursors for them would fabricate a false offset divergence. Skip, matching the emission loop.
                 if (!propertyDecl.HasStorage || propertyDecl.IsStatic)
                     continue;
-                if (!TryGetFrozenFieldLayout(propertyDecl.SwiftTypeSpec, typeDatabase,
+                if (!TryGetFrozenFieldLayout(propertyDecl.SwiftTypeSpec, typeDatabase, structDecl,
                         out int swiftSize, out int swiftAlign, out int csSize, out int csAlign,
                         out bool isOverPaddedOptional))
                     return false; // layout not precisely derivable → preserve existing behavior (no skip)
@@ -779,13 +804,13 @@ namespace BindingsGeneration
         /// nested value struct), so the caller can preserve existing behavior rather than guess.
         /// </summary>
         private static bool TryGetFrozenFieldLayout(
-            TypeSpec fieldTypeSpec, ITypeDatabase typeDatabase,
+            TypeSpec fieldTypeSpec, ITypeDatabase typeDatabase, StructDecl container,
             out int swiftSize, out int swiftAlign, out int csSize, out int csAlign, out bool isOverPaddedOptional)
         {
             swiftSize = swiftAlign = csSize = csAlign = 0;
             isOverPaddedOptional = false;
 
-            switch (ClassifyFrozenStructField(fieldTypeSpec, typeDatabase, out int byteSize))
+            switch (ClassifyFrozenStructField(fieldTypeSpec, typeDatabase, out int byteSize, container))
             {
                 case FrozenFieldLayoutKind.IntPtrFields:
                     // Optional<T> / reference-managed field emitted as whole 8-byte IntPtr words.
@@ -843,6 +868,53 @@ namespace BindingsGeneration
                 return true;
             }
             return false; // unknown alignment → caller bails (no skip)
+        }
+
+        /// <summary>
+        /// Emits a Buffer's members from its plan: one per slot, named after the stored property with a
+        /// numbered suffix when the property takes more than one.
+        /// </summary>
+        private static void EmitPlannedBufferFields(CSharpWriter csWriter, FrozenBufferLayout.Plan plan)
+        {
+            // A split field's `{name}_{i}_` can equal a sibling's `{name}_`; the later one takes another underscore.
+            var taken = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var field in plan.Fields)
+            {
+                for (int i = 0; i < field.Slots.Length; i++)
+                {
+                    var name = field.Slots.Length == 1 ? $"{field.Property.Name}_" : $"{field.Property.Name}_{i}_";
+                    while (!taken.Add(name))
+                        name += "_";
+                    csWriter.WriteLine($"private {field.Slots[i].CSharpType} {name};  // Note: Do not access this field directly - use the property accessors");
+                }
+            }
+        }
+
+        /// <summary>
+        /// True when <paramref name="structDecl"/> is projected as a Buffer-backed class whose Buffer
+        /// cannot hold Swift's layout: a stored field Swift places at an offset no sequential member
+        /// list reaches, or, for a struct with a field whose Swift layout is not known, an emitted
+        /// IntPtr-word field wider than Swift's that moves a later field. The Buffer is the value when it
+        /// crosses by value, so such a struct would read and return its fields from the wrong bytes. A
+        /// <see cref="TypeSkipConditions"/> entry.
+        /// </summary>
+        internal static bool HasBufferLayoutMismatch(StructDecl structDecl, ITypeDatabase typeDatabase, out string? detail)
+        {
+            detail = null;
+            if (!structDecl.IsFrozen
+                || !typeDatabase.TryGetTypeRecord(structDecl.SwiftTypeName, out var typeRecord)
+                || !MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord))
+                return false;
+            var plan = FrozenBufferLayout.TryPlan(structDecl, typeDatabase);
+            if (plan is not null)
+            {
+                detail = plan.Mismatch;
+                return detail is not null;
+            }
+            if (!EmittedOffsetsDiverge(structDecl, typeDatabase))
+                return false;
+            detail = "an IntPtr-word field is wider than the Swift field it mirrors and moves a later stored property off its Swift offset";
+            return true;
         }
 
         /// <summary>

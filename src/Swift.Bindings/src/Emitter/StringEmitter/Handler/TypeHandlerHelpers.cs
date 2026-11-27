@@ -248,7 +248,8 @@ namespace BindingsGeneration
         /// so a move is the only legal handoff. The moved-from wire buffer must then NOT be
         /// value-witness Destroyed, which is what <see cref="PayloadConstructionSemantics.Move"/>
         /// declares and <see cref="SelectFrozenStructPayloadSemantics"/> selects from the same
-        /// predicate.
+        /// predicate. The payload is as wide as the <c>Buffer</c> when that is wider than the value
+        /// (Swift's stride rounds its size up), since a by-value crossing reads the whole Buffer.
         /// </summary>
         internal static string BuildNewFromPayloadProjectedAsClass(
             string typeNameWithGenerics, string constructorName, bool isNonCopyable)
@@ -266,7 +267,7 @@ namespace BindingsGeneration
             unsafe {{constructorName}}(SwiftHandle handle)
             {
                 var metadata = SwiftObjectHelper<{{typeNameWithGenerics}}>.GetTypeMetadata();
-                IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc(metadata.Size);
+                IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc(global::System.Math.Max(metadata.Size, (nuint)sizeof({{typeNameWithGenerics}}.Buffer)));
                 metadata.ValueWitnessTable->{{initializeWitness}}((void*)bufferPtr, (void*)(IntPtr)handle, metadata);
                 _payload = new SwiftSafeHandle<{{typeNameWithGenerics}}>(bufferPtr);
             }

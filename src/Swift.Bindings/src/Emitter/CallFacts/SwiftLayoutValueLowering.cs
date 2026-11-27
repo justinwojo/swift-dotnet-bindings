@@ -528,13 +528,56 @@ public sealed class SwiftLayoutResolver
         var types = new Dictionary<string, TypeSpec>(StringComparer.Ordinal);
         for (int i = 0; i < parameters.Count; i++)
         {
-            map[parameters[i]] = Resolve(named.GenericParameters[i], depth + 1, scope);
+            map[parameters[i]] = ResolveGenericArgument(named.GenericParameters[i], depth + 1, scope);
             types[parameters[i]] = BoundTypeOf(named.GenericParameters[i], scope);
         }
         bound = map;
         boundTypes = types;
         return null;
     }
+
+    /// <summary>
+    /// A generic argument, as the generic type stores it: at its most general abstraction, where a
+    /// metatype is the metadata pointer even when it names a struct or enum, whose metatype stored as
+    /// itself is thin and takes no storage. A metatype deeper in the argument (a tuple element, an
+    /// Optional's payload) is thick there too, which no rule here follows for a struct's or enum's
+    /// metatype; a class's is one pointer either way.
+    /// </summary>
+    private SwiftLayoutResult ResolveGenericArgument(TypeSpec argument, int depth, Scope scope)
+    {
+        if (IsConcreteMetatype(argument))
+            return SwiftLayoutResult.Of(SwiftLeafLayout.Scalar(SwiftScalarKind.Pointer), $"'{argument.ToString(true)}' is a thick metatype as a generic argument");
+        if (HasNestedMetatype(argument))
+            return SwiftLayoutResult.Unknown($"'{argument.ToString(true)}' holds a metatype that a generic argument stores thick, which has no layout rule");
+        return Resolve(argument, depth, scope);
+
+        bool HasNestedMetatype(TypeSpec spec) => spec switch
+        {
+            TupleTypeSpec tuple => tuple.Elements.Any(e => IsThinMetatype(e) || HasNestedMetatype(e)),
+            NamedTypeSpec { Name: "Swift.Optional", GenericParameters.Count: 1 } optional =>
+                IsThinMetatype(optional.GenericParameters[0]) || HasNestedMetatype(optional.GenericParameters[0]),
+            _ => false,
+        };
+    }
+
+    /// <summary>A concrete metatype of a type that is not a class: thin when stored as itself.</summary>
+    private bool IsThinMetatype(TypeSpec spec)
+    {
+        if (!IsConcreteMetatype(spec))
+            return false;
+        var instance = FullNameOf((NamedTypeSpec)spec)[..^".Type".Length];
+        if (_types.TryGetValue(instance, out var entry))
+            return entry.Decl is not ClassDecl;
+        return !(TryPeekRecord(instance, out var record) && record.Kind == TypeRecordKind.Class)
+            && !(instance == "Self" || instance.StartsWith("τ_", StringComparison.Ordinal));
+    }
+
+    /// <summary>A metatype <c>T.Type</c> that is not an existential one and not a type declared with that name.</summary>
+    private bool IsConcreteMetatype(TypeSpec spec) =>
+        spec is NamedTypeSpec { IsAny: false } named
+        && FullNameOf(named) is var name
+        && name.EndsWith(".Type", StringComparison.Ordinal)
+        && !IsDeclaredTypeName(name);
 
     /// <summary>The type <paramref name="spec"/> stands for: a bound generic parameter's argument, or itself.</summary>
     private static TypeSpec BoundTypeOf(TypeSpec spec, Scope scope) =>

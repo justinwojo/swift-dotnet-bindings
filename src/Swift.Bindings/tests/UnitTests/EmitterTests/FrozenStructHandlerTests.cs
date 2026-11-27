@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Collections.Immutable;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -821,7 +822,8 @@ public class FrozenStructHandlerTests
     // `@frozen struct Wrap<T> { var value: T }` stored as `Wrap<Int64>`: one word, and two for the pair.
     [InlineData("Swift.Int64", 8)]
     [InlineData("TestModule.Pair", 16)]
-    // `Wrap<UInt8>` is one byte: as a pointer word it would push the fields after it out of place.
+    // `Wrap<UInt8>` is one byte: as a pointer word it would push the fields after it out of place, so
+    // the per-field words withhold it and the planned Buffer places it instead.
     [InlineData("Swift.UInt8", null)]
     public void ClassifyFrozenStructField_SpecializationOfAGenericStructTheModuleDeclares_ReservesItsBoundSize(
         string argumentName, int? expectedSize)
@@ -859,13 +861,284 @@ public class FrozenStructHandlerTests
         if (expectedSize is null)
         {
             Assert.Equal(FrozenStructHandler.FrozenFieldLayoutKind.Indeterminate, kind);
-            Assert.True(FrozenStructHandler.HasIndeterminateBufferLayout(host, db));
+            Assert.False(FrozenStructHandler.HasIndeterminateBufferLayout(host, db));
+            Assert.Equal(new[] { 0, 8 }, FrozenBufferLayout.TryPlan(host, db)!.Fields.Select(f => f.Slots[0].Offset).ToArray());
             return;
         }
         Assert.Equal(FrozenStructHandler.FrozenFieldLayoutKind.IntPtrFields, kind);
         Assert.Equal(expectedSize, byteSize);
         Assert.False(FrozenStructHandler.HasIndeterminateBufferLayout(host, db));
     }
+
+    #region Buffer members follow Swift's layout (FrozenBufferLayout)
+
+    private static SwiftLeafLayout Opaque(params (int Offset, int Size)[] leaves)
+    {
+        int size = leaves.Max(l => l.Offset + l.Size);
+        int alignment = leaves.Max(l => l.Size is 1 or 2 or 4 or 8 ? l.Size : 1);
+        return new SwiftLeafLayout(size, alignment,
+            leaves.Select(l => new SwiftLayoutLeaf(l.Offset, l.Size, SwiftScalarKind.Opaque)).ToImmutableArray());
+    }
+
+    // An Optional's payload and its tag byte, as Swift stores an Optional of a scalar with no spare bits.
+    private static SwiftLeafLayout OptionalLayout(int payloadSize) => Opaque((0, payloadSize), (payloadSize, 1));
+
+    private static SwiftLeafLayout StringLayout() => SwiftLeafLayout.Sequence(new[]
+    {
+        SwiftLeafLayout.Scalar(SwiftScalarKind.Int64), SwiftLeafLayout.Scalar(SwiftScalarKind.Pointer),
+    });
+
+    private static FrozenBufferLayout.Plan Plan(params SwiftLeafLayout[] fields) =>
+        FrozenBufferLayout.PlanFor(fields.Select((f, i) => (CreatePropertyDecl($"f{i}", "Swift.Int", hasStorage: true), f)).ToList());
+
+    private static int ManagedSize(FrozenBufferLayout.Plan plan)
+    {
+        var slots = plan.Fields.SelectMany(f => f.Slots).ToList();
+        int end = slots.Max(s => s.Offset + s.Size);
+        int alignment = slots.Max(s => s.Size);
+        return (end + alignment - 1) / alignment * alignment;
+    }
+
+    public static TheoryData<string, SwiftLeafLayout[], int[], int> BufferShapes() => new()
+    {
+        // `{ Wrap<Int>, UInt8?, UInt8 }`: size 11, the tail at 10 (MemoryLayout, arm64 and x86_64).
+        { "word, UInt8?, UInt8", new[] { SwiftLeafLayout.Scalar(SwiftScalarKind.Int64), OptionalLayout(1), SwiftLeafLayout.Scalar(SwiftScalarKind.Int8) }, new[] { 0, 8, 10 }, 16 },
+        // `{ String, Int16?, UInt8 }`: size 20, the optional at 16 and the tail at 19.
+        { "String, Int16?, UInt8", new[] { StringLayout(), OptionalLayout(2), SwiftLeafLayout.Scalar(SwiftScalarKind.Int8) }, new[] { 0, 16, 19 }, 24 },
+        // `{ String, Int32?, Int32 }`: size 28, the tail aligned up to 24.
+        { "String, Int32?, Int32", new[] { StringLayout(), OptionalLayout(4), SwiftLeafLayout.Scalar(SwiftScalarKind.Int32) }, new[] { 0, 16, 24 }, 32 },
+        // `{ String, Int?, UInt8 }`: the tag byte at 24 and the tail at 25.
+        { "String, Int?, UInt8", new[] { StringLayout(), OptionalLayout(8), SwiftLeafLayout.Scalar(SwiftScalarKind.Int8) }, new[] { 0, 16, 25 }, 32 },
+        // `{ UInt8?, String }`: the String aligned up to 8.
+        { "UInt8?, String", new[] { OptionalLayout(1), StringLayout() }, new[] { 0, 8 }, 24 },
+        // `{ String, Double, UInt8 }`: floating point stays a double.
+        { "String, Double, UInt8", new[] { StringLayout(), SwiftLeafLayout.Scalar(SwiftScalarKind.Double), SwiftLeafLayout.Scalar(SwiftScalarKind.Int8) }, new[] { 0, 16, 24 }, 32 },
+    };
+
+    [Theory]
+    [MemberData(nameof(BufferShapes))]
+    public void BufferPlan_PlacesEveryStoredFieldAtItsSwiftOffset_AndIsNoWiderThanTheStride(
+        string shape, SwiftLeafLayout[] fields, int[] expectedOffsets, int expectedManagedSize)
+    {
+        var plan = Plan(fields);
+
+        Assert.True(plan.Mismatch is null, $"{shape}: {plan.Mismatch}");
+        Assert.Equal(expectedOffsets, plan.Fields.Select(f => f.Slots[0].Offset).ToArray());
+        Assert.Equal(expectedManagedSize, ManagedSize(plan));
+        // Floating point is emitted as floating point, so .NET lowers it into the same register class.
+        Assert.Equal(
+            fields.SelectMany(f => f.Leaves).Count(l => l.Kind is SwiftScalarKind.Double or SwiftScalarKind.Float),
+            plan.Fields.SelectMany(f => f.Slots).Count(s => s.CSharpType is "double" or "float"));
+        // Each member sits where a sequential struct puts it.
+        int cursor = 0;
+        foreach (var slot in plan.Fields.SelectMany(f => f.Slots))
+        {
+            Assert.Equal((cursor + slot.Size - 1) / slot.Size * slot.Size, slot.Offset);
+            cursor = slot.Offset + slot.Size;
+        }
+    }
+
+    [Fact]
+    public void BufferPlan_PadsAheadOfAFieldWhoseFirstScalarIsNarrowerThanItsAlignment()
+    {
+        // `{ UInt8, Inner }` with `Inner { UInt8, Int }`: Swift puts Inner at 8, but a sequential
+        // byte member would land at 1. Padding bytes hold it at 8, in the chunk the first byte
+        // already takes a register for.
+        var inner = SwiftLeafLayout.Sequence(new[] { SwiftLeafLayout.Scalar(SwiftScalarKind.Int8), SwiftLeafLayout.Scalar(SwiftScalarKind.Int64) });
+
+        var plan = Plan(SwiftLeafLayout.Scalar(SwiftScalarKind.Int8), inner);
+
+        Assert.Null(plan.Mismatch);
+        var innerSlots = plan.Fields[1].Slots;
+        Assert.Equal(new[] { 1, 2, 3, 4, 5, 6, 7, 8, 16 }, innerSlots.Select(s => s.Offset).ToArray());
+    }
+
+    [Fact]
+    public void BufferPlan_RefusesPaddingThatWouldTakeARegisterSwiftDoesNotUse()
+    {
+        // `{ Float, Inner }`: the padding after the float would lower as an integer piece Swift does
+        // not pass, so no member list matches and the struct must be skipped.
+        var inner = SwiftLeafLayout.Sequence(new[] { SwiftLeafLayout.Scalar(SwiftScalarKind.Int8), SwiftLeafLayout.Scalar(SwiftScalarKind.Int64) });
+
+        var plan = Plan(SwiftLeafLayout.Scalar(SwiftScalarKind.Float), inner);
+
+        Assert.NotNull(plan.Mismatch);
+    }
+
+    [Fact]
+    public void BufferPlan_IntegerMembersAreNoWiderThanTheFieldsAlignment()
+    {
+        // `{ UInt32, UInt32, UInt32 }`: Swift stride 12. An 8-byte member over the first two would make
+        // the Buffer 16 wide.
+        var triple = SwiftLeafLayout.Sequence(new[]
+        {
+            SwiftLeafLayout.Scalar(SwiftScalarKind.Int32), SwiftLeafLayout.Scalar(SwiftScalarKind.Int32), SwiftLeafLayout.Scalar(SwiftScalarKind.Int32),
+        });
+
+        var plan = Plan(triple);
+
+        Assert.Null(plan.Mismatch);
+        Assert.All(plan.Fields[0].Slots, s => Assert.Equal("uint", s.CSharpType));
+        Assert.Equal(12, ManagedSize(plan));
+    }
+
+    [Fact]
+    public void BufferPlan_AcceptsPaddingInAValueBothSidesPassThroughAnAddress()
+    {
+        // `{ String, Float, Inner }`: five register pieces, so Swift passes it through an address and
+        // only its bytes matter; the padding bytes after the float keep Inner at 24.
+        var inner = SwiftLeafLayout.Sequence(new[] { SwiftLeafLayout.Scalar(SwiftScalarKind.Int8), SwiftLeafLayout.Scalar(SwiftScalarKind.Int64) });
+
+        var plan = Plan(StringLayout(), SwiftLeafLayout.Scalar(SwiftScalarKind.Float), inner);
+
+        Assert.Null(plan.Mismatch);
+        Assert.Equal(new[] { 0, 16, 20 }, plan.Fields.Select(f => f.Slots[0].Offset).ToArray());
+        Assert.Contains(plan.Fields[2].Slots, s => s.Offset == 24 && s.Size == 1);
+    }
+
+    [Fact]
+    public void BufferPlan_SubWordSpecializationInABufferBackedHolder_IsPlannedNotWithheld()
+    {
+        // `@frozen Holder { Wrap<UInt8>, String }`: Wrap<UInt8> is one byte, so the per-field IntPtr
+        // words could not mirror it; the plan puts it at 0 and the String at 8, as Swift does.
+        var wrap = CreateFrozenStructWithStoredFields("Wrap", ("value", new NamedTypeSpec("τ_0_0")));
+        wrap.RawGenericSig = "<τ_0_0>";
+        wrap.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "τ_0_0", new List<GenericParameterConformance>(), new List<GenericParameterConformance>()),
+        };
+        var host = CreateFrozenStructWithStoredFields("Holder",
+            ("wrapped", new NamedTypeSpec("TestModule.Wrap", new NamedTypeSpec("Swift.UInt8"))),
+            ("text", new NamedTypeSpec("Swift.String")));
+        var module = new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl> { wrap, host },
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+        foreach (var decl in module.Types)
+        {
+            decl.ParentDecl = module;
+            decl.ModuleDecl = module;
+        }
+        var db = DatabaseAfterIngestion(host, wrap);
+        Assert.True(db.TryGetTypeRecord(host.SwiftTypeName, out var record) && MarshallingHelpers.IsFrozenStructProjectedAsClass(record),
+            "the String field makes the holder Buffer-backed");
+
+        Assert.False(FrozenStructHandler.HasIndeterminateBufferLayout(host, db));
+        Assert.False(FrozenStructHandler.HasBufferLayoutMismatch(host, db, out var detail), detail);
+        var plan = FrozenBufferLayout.TryPlan(host, db);
+        Assert.NotNull(plan);
+        Assert.Equal(new[] { 0, 8 }, plan!.Fields.Select(f => f.Slots[0].Offset).ToArray());
+        Assert.Equal(24, ManagedSize(plan));
+    }
+
+    [Theory]
+    // Stored as itself a struct's metatype is thin, but as Wrap's argument it is the metadata
+    // pointer, so the String sits at 8 (MemoryLayout).
+    [InlineData("struct metatype", 8)]
+    // A class's metatype is one pointer anywhere: `(Anchor.Type, Int64)` is 16 bytes.
+    [InlineData("class metatype in a tuple", 16)]
+    // A struct's metatype inside an Optional argument is thick as well, which the resolver does not
+    // follow, so the holder gets no plan.
+    [InlineData("struct metatype in an Optional", null)]
+    public void BufferPlan_AMetatypeInAGenericArgument_IsStoredThick(string shape, int? textOffset)
+    {
+        var probe = CreateFrozenStructWithStoredFields("Probe", ("x", new NamedTypeSpec("Swift.Int64")));
+        var anchor = CreateClassDecl("Anchor");
+        var wrap = CreateFrozenStructWithStoredFields("Wrap", ("value", new NamedTypeSpec("τ_0_0")));
+        wrap.RawGenericSig = "<τ_0_0>";
+        wrap.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "τ_0_0", new List<GenericParameterConformance>(), new List<GenericParameterConformance>()),
+        };
+        TypeSpec argument = shape switch
+        {
+            "struct metatype" => new NamedTypeSpec("TestModule.Probe.Type"),
+            "class metatype in a tuple" => new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("TestModule.Anchor.Type"), new NamedTypeSpec("Swift.Int64") }),
+            _ => new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("TestModule.Probe.Type")),
+        };
+        var host = CreateFrozenStructWithStoredFields("Holder",
+            ("meta", new NamedTypeSpec("TestModule.Wrap", argument)),
+            ("text", new NamedTypeSpec("Swift.String")));
+        var module = new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl> { probe, anchor, wrap, host },
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+        foreach (var decl in module.Types)
+        {
+            decl.ParentDecl = module;
+            decl.ModuleDecl = module;
+        }
+        var db = DatabaseAfterIngestion(host, wrap, probe, anchor);
+
+        var plan = FrozenBufferLayout.TryPlan(host, db);
+
+        if (textOffset is null)
+        {
+            Assert.Null(plan);
+            return;
+        }
+        Assert.NotNull(plan);
+        Assert.Null(plan!.Mismatch);
+        Assert.Equal(new[] { 0, textOffset.Value }, plan.Fields.Select(f => f.Slots[0].Offset).ToArray());
+    }
+
+    [Fact]
+    public void BufferPlan_SpecializationHolderWithSubWordFields_ReadsSwiftsLayoutFromTheDeclarations()
+    {
+        // `@frozen Holder { Wrap<Int64>, UInt8?, UInt8 }`: Swift size 11 with the tail at 10. The
+        // per-field IntPtr words put it at 16, past the Swift value.
+        var wrap = CreateFrozenStructWithStoredFields("Wrap", ("value", new NamedTypeSpec("τ_0_0")));
+        wrap.RawGenericSig = "<τ_0_0>";
+        wrap.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "τ_0_0", new List<GenericParameterConformance>(), new List<GenericParameterConformance>()),
+        };
+        var host = CreateFrozenStructWithStoredFields("Holder",
+            ("wrapped", new NamedTypeSpec("TestModule.Wrap", new NamedTypeSpec("Swift.Int64"))),
+            ("flag", OptionalOf("Swift.UInt8")),
+            ("tail", new NamedTypeSpec("Swift.UInt8")));
+        var module = new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl> { wrap, host },
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+        foreach (var decl in module.Types)
+        {
+            decl.ParentDecl = module;
+            decl.ModuleDecl = module;
+        }
+        var db = DatabaseAfterIngestion(host, wrap);
+
+        var plan = FrozenBufferLayout.TryPlan(host, db);
+
+        Assert.NotNull(plan);
+        Assert.Null(plan!.Mismatch);
+        Assert.Equal(11, plan.SwiftSize);
+        Assert.Equal(new[] { 0, 8, 10 }, plan.Fields.Select(f => f.Slots[0].Offset).ToArray());
+        Assert.Equal(16, ManagedSize(plan));
+    }
+
+    #endregion
 
     /// <summary>
     /// Registers a nested reference-managed frozen struct (no persisted InlineSize, no live metadata —

@@ -172,4 +172,70 @@ public class FrozenStoredLayoutTests : TestBase
         using var echoed = TestLibFunctions.StoredLayoutWrappedTextEcho(fromSwift);
         AssertEqual("wrap/5", TestLibFunctions.StoredLayoutWrappedTextName(echoed), "a by-value argument returned unchanged");
     }
+
+    /// <summary>
+    /// The managed Buffer against Swift's own <c>MemoryLayout</c> (size/stride/offset): at least the
+    /// value's size and no wider than its stride, and the named member at Swift's offset of that field.
+    /// </summary>
+    private void AssertBufferMatchesSwift<TBuffer>(string swiftLayout, string member, string shape) where TBuffer : struct
+    {
+        var parts = swiftLayout.Split('/');
+        int size = int.Parse(parts[0]), stride = int.Parse(parts[1]), offset = int.Parse(parts[2]);
+        int managed = System.Runtime.CompilerServices.Unsafe.SizeOf<TBuffer>();
+        AssertTrue(managed >= size && managed <= stride, $"{shape}: the Buffer ({managed} bytes) spans Swift's size {size} and fits its stride {stride}");
+        AssertEqual(offset, (int)System.Runtime.InteropServices.Marshal.OffsetOf<TBuffer>(member), $"{shape}: '{member}' sits at Swift's offset");
+    }
+
+    [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields, typeof(StoredLayoutWrappedFlags.Buffer))]
+    public void TestASpecializationFollowedBySubWordFieldsKeepsSwiftsOffsets()
+    {
+        AssertBufferMatchesSwift<StoredLayoutWrappedFlags.Buffer>(TestLibFunctions.GetStoredLayoutWrappedFlagsLayout(), "tail_", "Wrap<Int>, UInt8?, UInt8");
+
+        using var fromSwift = TestLibFunctions.MakeStoredLayoutWrappedFlags(7, 9, 200);
+        AssertEqual("7/9/200", TestLibFunctions.StoredLayoutWrappedFlagsName(fromSwift), "Swift reads every field of the returned struct");
+        AssertEqual((byte)200, fromSwift.Tail, "C# reads the tail after the one-byte Optional");
+        AssertEqual((byte)9, fromSwift.Flag, "C# reads the one-byte Optional");
+
+        using var none = TestLibFunctions.MakeStoredLayoutWrappedFlags(-3, null, 1);
+        AssertEqual("-3/nil/1", TestLibFunctions.StoredLayoutWrappedFlagsName(none), "an empty Optional between two fields");
+
+        using var echoed = TestLibFunctions.StoredLayoutWrappedFlagsEcho(fromSwift);
+        AssertEqual("7/9/200", TestLibFunctions.StoredLayoutWrappedFlagsName(echoed), "a by-value argument returned unchanged");
+
+        var bumped = TestLibFunctions.MakeStoredLayoutWrappedFlags(7, 9, 200);
+        TestLibFunctions.StoredLayoutWrappedFlagsBump(ref bumped);
+        AssertEqual("7/9/201", TestLibFunctions.StoredLayoutWrappedFlagsName(bumped), "an inout argument written back in place");
+        bumped.BumpTail();
+        AssertEqual((byte)202, bumped.Tail, "a mutating method writes the tail Swift reads");
+        bumped.Dispose();
+    }
+
+    [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields, typeof(StoredLayoutTextFlags.Buffer))]
+    public void TestAStringFollowedBySubWordFieldsKeepsSwiftsOffsets()
+    {
+        AssertBufferMatchesSwift<StoredLayoutTextFlags.Buffer>(TestLibFunctions.GetStoredLayoutTextFlagsLayout(), "tail_", "String, Int16?, UInt8");
+
+        using var fromSwift = TestLibFunctions.MakeStoredLayoutTextFlags("flags", -12, 77);
+        AssertEqual("flags/-12/77", TestLibFunctions.StoredLayoutTextFlagsName(fromSwift), "Swift reads every field of the returned struct");
+        AssertEqual((short)-12, fromSwift.Flag, "C# reads the Optional after the String");
+        AssertEqual((byte)77, fromSwift.Tail, "C# reads the tail after the Optional's tag byte");
+
+        using var fromCSharp = new StoredLayoutTextFlags("built", null, 5);
+        AssertEqual("built/nil/5", TestLibFunctions.StoredLayoutTextFlagsName(fromCSharp), "Swift reads a C#-built struct");
+        using var echoed = TestLibFunctions.StoredLayoutTextFlagsEcho(fromCSharp);
+        AssertEqual("built/nil/5", TestLibFunctions.StoredLayoutTextFlagsName(echoed), "a by-value argument returned unchanged");
+    }
+
+    [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicFields, typeof(StoredLayoutPaddedText.Buffer))]
+    public void TestPaddingAheadOfAnAlignedInnerStructKeepsSwiftsOffsets()
+    {
+        AssertBufferMatchesSwift<StoredLayoutPaddedText.Buffer>(TestLibFunctions.GetStoredLayoutPaddedTextLayout(), "text_0_", "UInt8, { UInt8, Int }, String");
+
+        using var fromSwift = TestLibFunctions.MakeStoredLayoutPaddedText(1, 2, 300, "padded");
+        AssertEqual("1/2/300/padded", TestLibFunctions.StoredLayoutPaddedTextName(fromSwift), "Swift reads every field of the returned struct");
+        AssertEqual("padded", fromSwift.Text, "C# reads the String after the inner struct");
+
+        using var echoed = TestLibFunctions.StoredLayoutPaddedTextEcho(fromSwift);
+        AssertEqual("1/2/300/padded", TestLibFunctions.StoredLayoutPaddedTextName(echoed), "a by-value argument returned unchanged");
+    }
 }
