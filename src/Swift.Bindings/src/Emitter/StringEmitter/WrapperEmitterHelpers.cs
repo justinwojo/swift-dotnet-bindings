@@ -463,7 +463,10 @@ public static class WrapperEmitterHelpers
             // Skip constraints the parent already requires — re-stating them is redundant.
             if (parentLevelConstraints.TryGetValue(r.SubjectRoot, out var declared) && declared.Contains(r.Target))
                 continue;
-            clauses.Add($"{paramName} : {r.Target}");
+            // The ABI spells the class-layout constraint bare; emitted Swift qualifies it, or a bound
+            // module's own `AnyObject` would capture the name.
+            var target = r.Target is "AnyObject" ? "Swift.AnyObject" : r.Target;
+            clauses.Add($"{paramName} : {target}");
         }
         return clauses.Count == 0 ? string.Empty : " where " + string.Join(", ", clauses);
     }

@@ -817,6 +817,56 @@ public class FrozenStructHandlerTests
         Assert.False(FrozenStructHandler.HasIndeterminateBufferLayout(host, db));
     }
 
+    [Theory]
+    // `@frozen struct Wrap<T> { var value: T }` stored as `Wrap<Int64>`: one word, and two for the pair.
+    [InlineData("Swift.Int64", 8)]
+    [InlineData("TestModule.Pair", 16)]
+    // `Wrap<UInt8>` is one byte: as a pointer word it would push the fields after it out of place.
+    [InlineData("Swift.UInt8", null)]
+    public void ClassifyFrozenStructField_SpecializationOfAGenericStructTheModuleDeclares_ReservesItsBoundSize(
+        string argumentName, int? expectedSize)
+    {
+        var wrap = CreateFrozenStructWithStoredFields("Wrap", ("value", new NamedTypeSpec("τ_0_0")));
+        wrap.RawGenericSig = "<τ_0_0>";
+        wrap.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "τ_0_0", new List<GenericParameterConformance>(), new List<GenericParameterConformance>()),
+        };
+        var pair = CreateFrozenStructWithStoredFields("Pair", ("first", new NamedTypeSpec("Swift.Int64")), ("second", new NamedTypeSpec("Swift.Int64")));
+        var argument = new NamedTypeSpec(argumentName);
+        var field = new NamedTypeSpec("TestModule.Wrap", argument);
+        var host = CreateFrozenStructWithStoredFields("Host", ("wrapped", field), ("count", new NamedTypeSpec("Swift.Int64")));
+        var module = new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl> { wrap, pair, host },
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+        foreach (var decl in module.Types)
+        {
+            decl.ParentDecl = module;
+            decl.ModuleDecl = module;
+        }
+        var db = DatabaseAfterIngestion(host, wrap, pair);
+
+        var kind = FrozenStructHandler.ClassifyFrozenStructField(field, db, out int byteSize, host);
+
+        if (expectedSize is null)
+        {
+            Assert.Equal(FrozenStructHandler.FrozenFieldLayoutKind.Indeterminate, kind);
+            Assert.True(FrozenStructHandler.HasIndeterminateBufferLayout(host, db));
+            return;
+        }
+        Assert.Equal(FrozenStructHandler.FrozenFieldLayoutKind.IntPtrFields, kind);
+        Assert.Equal(expectedSize, byteSize);
+        Assert.False(FrozenStructHandler.HasIndeterminateBufferLayout(host, db));
+    }
+
     /// <summary>
     /// Registers a nested reference-managed frozen struct (no persisted InlineSize, no live metadata —
     /// the cross-compile shape) whose only size source is its parse-time declared layout.

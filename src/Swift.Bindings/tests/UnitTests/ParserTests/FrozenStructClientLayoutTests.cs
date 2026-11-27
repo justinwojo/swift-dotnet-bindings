@@ -513,6 +513,152 @@ public class FrozenStructClientLayoutTests
         Assert.Equal(expectFrozen, MarshallingHelpers.IsTypeFrozen(records["TestModule.SubclassHolder"]));
     }
 
+    [Theory]
+    // A class imported from Objective-C or Core Foundation is mangled in the Clang importer's
+    // context, whatever flags its record carries.
+    [InlineData("Dispatch.DispatchQueue", TypeRecordFlags.RequiresMemoryManagement, "$sSo17OS_dispatch_queueC", false)]
+    // A class declared in Swift keeps its own module's mangling: native, even in a module of the SDK's
+    // Objective-C frameworks, and even when its record projects it onto an Objective-C binding.
+    [InlineData("Speech.SFCustomLanguageModelData", TypeRecordFlags.RequiresMemoryManagement, "$s6Speech26SFCustomLanguageModelDataCMa", true)]
+    [InlineData("Foreign.Node", TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement, "$s7Foreign4NodeCMa", true)]
+    // Its own module found it rooted in Objective-C.
+    [InlineData("Foreign.Node", TypeRecordFlags.ObjCRooted, "$s7Foreign4NodeCMa", false)]
+    public void AnUnownedFieldOfAnotherModulesClass_IsJudgedByWhereItsManglingSaysItWasDeclared(
+        string className, TypeRecordFlags classFlags, string mangling, bool expectFrozen)
+    {
+        var typeDatabase = new TypeDatabase();
+        SeedPrimitives(typeDatabase);
+        AddForeignClass(typeDatabase, className, classFlags, mangling);
+        var holder = CreateStructDecl("Holder", ("reference", new NamedTypeSpec(className)), ("count", IntSpec));
+        holder.Properties[0].ReferenceOwnership = SwiftReferenceOwnership.Unowned;
+
+        var records = Process(typeDatabase, ("TestModule.Holder", holder));
+
+        Assert.Equal(expectFrozen, MarshallingHelpers.IsTypeFrozen(records["TestModule.Holder"]));
+    }
+
+    [Theory]
+    // The superclass is specialized: its record is keyed without the arguments.
+    [InlineData("Foreign.Base<Swift.Int>")]
+    // Only the direct superclass's module is known; its record answers for the rest of the chain.
+    [InlineData("Foreign.Base", "Ancestor.Root")]
+    // A class nested in a specialized type: the record is the nested class's, not the outer struct's.
+    [InlineData("Foreign.Outer<Swift.Int>.Base")]
+    // A function type's arrow inside the arguments does not close them.
+    [InlineData("Foreign.Base<(Swift.Int) -> Swift.Int>")]
+    public void AnUnownedFieldOfASubclassOfAnotherModulesNativeClass_IsLoadable(params string[] superclassNames)
+    {
+        var typeDatabase = new TypeDatabase();
+        SeedPrimitives(typeDatabase);
+        AddForeignClass(typeDatabase, "Foreign.Base", TypeRecordFlags.RequiresMemoryManagement, "$s7Foreign4BaseCMa");
+        AddForeignClass(typeDatabase, "Foreign.Outer.Base", TypeRecordFlags.RequiresMemoryManagement, "$s7Foreign5OuterV4BaseCMa");
+        AddForeignRecord(typeDatabase, "Foreign.Outer", TypeRecordKind.Struct, TypeRecordFlags.Frozen, "$s7Foreign5OuterVMa");
+        var child = MakeClass("Child", "s:7Foreign4BaseC", superclassNames);
+        var holder = CreateStructDecl("Holder", ("reference", Spec("Child")), ("count", IntSpec));
+        holder.Properties[0].ReferenceOwnership = SwiftReferenceOwnership.Unowned;
+
+        var records = Process(typeDatabase, ("TestModule.Child", child), ("TestModule.Holder", holder));
+
+        Assert.True(MarshallingHelpers.IsTypeFrozen(records["TestModule.Holder"]));
+    }
+
+    [Theory]
+    [InlineData("native", true)]
+    [InlineData("objc", false)]
+    public void AnUnownedExistentialConstrainedByAClass_IsLoadableOnlyForANativeClass(string referent, bool expectFrozen)
+    {
+        var native = MakeClass("Native", superclassUsr: null);
+        var objc = MakeClass("Bridged", "c:objc(cs)NSObject", "ObjectiveC.NSObject");
+        var shape = TestDecls.Protocol("Shape", "TestModule");
+        var holder = CreateStructDecl("Holder",
+            ("reference", new ProtocolListTypeSpec([Spec(referent == "native" ? "Native" : "Bridged"), Spec("Shape")])), ("count", IntSpec));
+        holder.Properties[0].ReferenceOwnership = SwiftReferenceOwnership.Unowned;
+
+        var records = Process(("TestModule.Native", native), ("TestModule.Bridged", objc), ("TestModule.Shape", shape),
+            ("TestModule.Holder", holder));
+
+        Assert.Equal(expectFrozen, MarshallingHelpers.IsTypeFrozen(records["TestModule.Holder"]));
+    }
+
+    [Theory]
+    // `UnownedBox<T: AnyObject> { unowned var reference: T }` specialized directly, and through a
+    // frozen generic struct that passes its own parameter on.
+    [InlineData("Native", false, true)]
+    [InlineData("Bridged", false, false)]
+    [InlineData("Native", true, true)]
+    [InlineData("Bridged", true, false)]
+    public void AnUnownedGenericField_IsJudgedByTheClassItsSpecializationBinds(string argument, bool throughOuter, bool expectFrozen)
+    {
+        var native = MakeClass("Native", superclassUsr: null);
+        var objc = MakeClass("Bridged", "c:objc(cs)NSObject", "ObjectiveC.NSObject");
+        var box = MakeGeneric(CreateStructDecl("UnownedBox", ("reference", new NamedTypeSpec("τ_0_0"))), "τ_0_0");
+        box.Properties[0].ReferenceOwnership = SwiftReferenceOwnership.Unowned;
+        var outer = MakeGeneric(CreateStructDecl("Outer",
+            ("box", new NamedTypeSpec("TestModule.UnownedBox", new NamedTypeSpec("τ_0_0"))), ("count", IntSpec)), "τ_0_0");
+        var stored = throughOuter
+            ? new NamedTypeSpec("TestModule.Outer", Spec(argument))
+            : new NamedTypeSpec("TestModule.UnownedBox", Spec(argument));
+        var holder = CreateStructDecl("Holder", ("value", stored), ("count", IntSpec));
+
+        // The holder is processed first, before either generic declaration has a record.
+        var records = Process(("TestModule.Holder", holder), ("TestModule.Outer", outer), ("TestModule.UnownedBox", box),
+            ("TestModule.Native", native), ("TestModule.Bridged", objc));
+
+        Assert.Equal(expectFrozen, MarshallingHelpers.IsTypeFrozen(records["TestModule.Holder"]));
+        Assert.False(MarshallingHelpers.IsTypeFrozen(records["TestModule.UnownedBox"]), "unspecialized, the referent's class is unknown");
+    }
+
+    [Fact]
+    public void AnUnownedFieldOfASubclassOfASpecializedObjectiveCRootedClass_IsAddressOnly()
+    {
+        // `class Child: Foreign.Base<Int>` where `Base<T>: NSObject`: the hierarchy pass must find
+        // the superclass's record under its unspecialized name and root Child in Objective-C too.
+        var typeDatabase = new TypeDatabase();
+        SeedPrimitives(typeDatabase);
+        AddForeignClass(typeDatabase, "Foreign.Base", TypeRecordFlags.ObjCRooted | TypeRecordFlags.RequiresMemoryManagement, "$s7Foreign4BaseCMa");
+        var child = MakeClass("Child", "s:7Foreign4BaseC", "Foreign.Base<Swift.Int>");
+        var holder = CreateStructDecl("Holder", ("reference", Spec("Child")), ("count", IntSpec));
+        holder.Properties[0].ReferenceOwnership = SwiftReferenceOwnership.Unowned;
+
+        var records = Process(typeDatabase, ("TestModule.Child", child), ("TestModule.Holder", holder));
+
+        Assert.True(MarshallingHelpers.IsObjCRooted(records["TestModule.Child"]));
+        Assert.False(MarshallingHelpers.IsTypeFrozen(records["TestModule.Holder"]));
+    }
+
+    [Fact]
+    public void AnUnownedFieldOfASubclassOfASpecializedObjectiveCRootedClassOfTheSameModule_IsAddressOnly()
+    {
+        var root = MakeClass("Base", "c:objc(cs)NSObject", "ObjectiveC.NSObject");
+        var child = MakeClass("Child", "s:10TestModule4BaseC", "TestModule.Base<Swift.Int>");
+        var holder = CreateStructDecl("Holder", ("reference", Spec("Child")), ("count", IntSpec));
+        holder.Properties[0].ReferenceOwnership = SwiftReferenceOwnership.Unowned;
+
+        var records = Process(("TestModule.Base", root), ("TestModule.Child", child), ("TestModule.Holder", holder));
+
+        Assert.True(MarshallingHelpers.IsObjCRooted(records["TestModule.Child"]));
+        Assert.False(MarshallingHelpers.IsTypeFrozen(records["TestModule.Holder"]));
+    }
+
+    private static void AddForeignClass(TypeDatabase typeDatabase, string className, TypeRecordFlags flags, string mangling)
+        => AddForeignRecord(typeDatabase, className, TypeRecordKind.Class, flags, mangling);
+
+    private static void AddForeignRecord(TypeDatabase typeDatabase, string className, TypeRecordKind kind, TypeRecordFlags flags, string mangling)
+    {
+        var swiftName = SwiftTypeName.FromModuleQualifiedName(className);
+        typeDatabase.AddOutOfModuleTypes(
+        [
+            (swiftName, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(swiftName.Module!, swiftName.Name),
+                SwiftTypeName = swiftName,
+                MetadataAccessor = mangling,
+                Flags = flags,
+                Kind = kind,
+            }),
+        ]);
+    }
+
     [Fact]
     public void ACompositionWithAnSdkProtocolKnownToBindToClasses_IsLoadable()
     {

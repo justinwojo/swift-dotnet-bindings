@@ -152,7 +152,8 @@ public sealed class SwiftLayoutResolver
         SwiftFunctionRepresentation? Functions,
         SwiftGenericSignatureFacts? Generics,
         IReadOnlyDictionary<string, SwiftLayoutResult>? Bound,
-        ImmutableArray<string> ObjCClasses = default)
+        ImmutableArray<string> ObjCClasses = default,
+        IReadOnlyDictionary<string, TypeSpec>? BoundTypes = null)
     {
         public static readonly Scope Empty = new(null, null, null);
 
@@ -176,6 +177,19 @@ public sealed class SwiftLayoutResolver
                 new SwiftCallFactsBuilder(new[] { m }, typeDatabase), new SwiftLayoutResolver(new[] { m }, typeDatabase))).AsTuple();
         var generics = facts.ClassifiedGenericsOf(method, parent);
         return resolver.Resolve(spec, generics: generics.IsEmpty ? null : generics).IsIndirect;
+    }
+
+    /// <summary>
+    /// The resolver over the declarations of the module that holds <paramref name="decl"/>, or over
+    /// the type database alone when no module holds it.
+    /// </summary>
+    internal static SwiftLayoutResolver ForModuleOf(BaseDecl? decl, ITypeDatabase typeDatabase)
+    {
+        var module = ModuleOf(decl);
+        return module is null
+            ? new SwiftLayoutResolver(Array.Empty<ModuleDecl>(), typeDatabase)
+            : ResolversByModule.GetValue(module, m => new ModuleResolvers(
+                new SwiftCallFactsBuilder(new[] { m }, typeDatabase), new SwiftLayoutResolver(new[] { m }, typeDatabase))).Layout;
     }
 
     private sealed record ModuleResolvers(SwiftCallFactsBuilder Facts, SwiftLayoutResolver Layout)
@@ -405,21 +419,36 @@ public sealed class SwiftLayoutResolver
 
             case StructDecl s:
             {
-                if (!s.IsFrozen)
+                // A generic struct is judged as declared: whether a specialization stores anything
+                // address-only is decided by walking its fields with the arguments bound below.
+                if (!(s.GenericParameters.Count > 0 ? s.IsDeclaredFrozen : s.IsFrozen))
                     return SwiftLayoutResult.Indirect($"'{name}' is resilient to its clients");
                 if (s.HasCustomAlignment)
                     return SwiftLayoutResult.Unknown($"'{name}' declares an alignment the ABI descriptor does not record");
-                if (BindArguments(s, named, depth, scope, out var bound) is { } refusal)
+                if (BindArguments(s, named, depth, scope, out var bound, out var boundTypes) is { } refusal)
                     return refusal;
                 // A stored function's representation is not in the ABI descriptor, whatever the caller knows.
-                var fieldScope = new Scope(null, null, bound);
+                var fieldScope = new Scope(null, null, bound, default, boundTypes);
                 var fields = new List<SwiftLeafLayout>();
                 foreach (var property in s.Properties)
                 {
                     if (property.IsStatic || !property.HasStorage)
                         continue;
-                    if (property.ReferenceOwnership != SwiftReferenceOwnership.Strong)
-                        return SwiftLayoutResult.Unknown($"'{name}.{property.Name}' is a {property.ReferenceOwnership} reference, whose storage this model does not describe");
+                    // The runtime tracks a weak reference, and an unowned one to anything but a native
+                    // Swift class, by its address. An unowned reference to a native class and an
+                    // unowned(unsafe) one are stored as the reference itself.
+                    if (property.ReferenceOwnership == SwiftReferenceOwnership.Weak)
+                        return SwiftLayoutResult.Indirect($"'{name}.{property.Name}' is a weak reference, which the runtime tracks by its address");
+                    if (property.ReferenceOwnership == SwiftReferenceOwnership.Unowned)
+                    {
+                        switch (IsNativeClassReferent(property.SwiftTypeSpec, fieldScope))
+                        {
+                            case null:
+                                return SwiftLayoutResult.Unknown($"whether the unowned '{name}.{property.Name}' refers to a native Swift class is not known");
+                            case false:
+                                return SwiftLayoutResult.Indirect($"'{name}.{property.Name}' is an unowned reference to a class that is not a native Swift class, which the runtime tracks by its address");
+                        }
+                    }
                     var field = Resolve(property.SwiftTypeSpec, depth + 1, fieldScope);
                     if (field.Layout is null)
                     {
@@ -472,9 +501,11 @@ public sealed class SwiftLayoutResolver
     /// Binds a generic struct's parameters to the arguments <paramref name="named"/> spells, each
     /// resolved where it is spelled. Returns why it cannot, or null.
     /// </summary>
-    private SwiftLayoutResult? BindArguments(StructDecl s, NamedTypeSpec named, int depth, Scope scope, out IReadOnlyDictionary<string, SwiftLayoutResult>? bound)
+    private SwiftLayoutResult? BindArguments(StructDecl s, NamedTypeSpec named, int depth, Scope scope,
+        out IReadOnlyDictionary<string, SwiftLayoutResult>? bound, out IReadOnlyDictionary<string, TypeSpec>? boundTypes)
     {
         bound = null;
+        boundTypes = null;
         var name = s.SwiftTypeName.ModuleQualifiedName;
         if (s.GenericParameters.Count == 0 && named.GenericParameters.Count == 0)
             return null;
@@ -494,10 +525,55 @@ public sealed class SwiftLayoutResolver
         }
         if (parameters.Count == 0 || parameters.Count != named.GenericParameters.Count)
             return SwiftLayoutResult.Unknown($"'{named.ToString(true)}' does not bind each of '{name}''s generic parameters");
+        var types = new Dictionary<string, TypeSpec>(StringComparer.Ordinal);
         for (int i = 0; i < parameters.Count; i++)
+        {
             map[parameters[i]] = Resolve(named.GenericParameters[i], depth + 1, scope);
+            types[parameters[i]] = BoundTypeOf(named.GenericParameters[i], scope);
+        }
         bound = map;
+        boundTypes = types;
         return null;
+    }
+
+    /// <summary>The type <paramref name="spec"/> stands for: a bound generic parameter's argument, or itself.</summary>
+    private static TypeSpec BoundTypeOf(TypeSpec spec, Scope scope) =>
+        spec is NamedTypeSpec { GenericParameters.Count: 0, InnerType: null } parameter
+        && scope.BoundTypes is { } types && types.TryGetValue(parameter.Name, out var argument)
+            ? argument
+            : spec;
+
+    /// <summary>
+    /// Whether the referent of an <c>unowned</c> reference, stored as <paramref name="spec"/> (or its
+    /// Optional), is a native Swift class or an existential one constrains. Null when the class is
+    /// neither declared nor recorded.
+    /// </summary>
+    private bool? IsNativeClassReferent(TypeSpec spec, Scope scope)
+    {
+        if (spec is NamedTypeSpec { Name: "Swift.Optional", GenericParameters.Count: 1 } optional)
+            spec = optional.GenericParameters[0];
+        spec = BoundTypeOf(spec, scope);
+        switch (spec)
+        {
+            case ProtocolListTypeSpec composition:
+                return composition.Protocols.Keys.Any(member => IsNativeClassReferent(member, scope) == true);
+            case NamedTypeSpec named:
+            {
+                var name = FullNameOf(named);
+                if (named.IsAny || name is "AnyObject" or "Swift.AnyObject" || !name.Contains('.'))
+                    return false;
+                if (_types.TryGetValue(name, out var entry) && entry.IsOwn)
+                    return entry.Decl is ClassDecl classDecl && SwiftClassNativity.IsNative(
+                        classDecl,
+                        superclass => _types.TryGetValue(superclass, out var declared) && declared.IsOwn ? declared.Decl : null,
+                        superclass => TryPeekRecord(superclass, out var recorded) ? recorded : null);
+                if (TryPeekRecord(name, out var record))
+                    return SwiftClassNativity.IsNative(record);
+                return named.IsUsrObjCClass || scope.IsObjCClass(name) ? false : null;
+            }
+            default:
+                return null;
+        }
     }
 
     /// <summary>

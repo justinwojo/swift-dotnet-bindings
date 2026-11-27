@@ -232,7 +232,8 @@ namespace BindingsGeneration
                 RegisterStructType(namedTypeSpec, structDecl, swiftTypeInfo, flags);
 
             // Update the struct declaration in memory so future passes see these properties.
-            _declaredFrozen.TryAdd(structDecl, structDecl.IsFrozen);
+            if (_declaredFrozen.TryAdd(structDecl, structDecl.IsFrozen))
+                structDecl.IsDeclaredFrozen = structDecl.IsFrozen;
             structDecl.IsFrozen = (flags & TypeRecordFlags.Frozen) != 0;
         }
 
@@ -383,7 +384,7 @@ namespace BindingsGeneration
                 // A stored field Swift moves through memory leaves the whole struct moving through
                 // memory to its clients, `@frozen` or not. Checked ahead of the NamedTypeSpec
                 // narrowing below, which would drop a tuple or composition field whole.
-                if (stored && (OwnershipMovesFieldThroughMemory(propertyDecl)
+                if (stored && (OwnershipMovesFieldThroughMemory(propertyDecl, bound: null)
                         || StoresClientAddressOnlyValue(propertyDecl.SwiftTypeSpec, bound: null, layoutWalk)))
                     flags &= ~TypeRecordFlags.Frozen;
 
@@ -485,12 +486,9 @@ namespace BindingsGeneration
         /// answered here.
         /// </para>
         /// </summary>
-        /// <param name="bound">
-        /// Whether each generic parameter of the declaration being walked is bound to an address-only
-        /// argument.
-        /// </param>
+        /// <param name="bound">What each generic parameter of the declaration being walked is bound to.</param>
         /// <param name="visiting">The specializations being walked, so a cycle ends.</param>
-        private bool StoresClientAddressOnlyValue(TypeSpec? spec, IReadOnlyDictionary<string, bool>? bound, HashSet<string> visiting)
+        private bool StoresClientAddressOnlyValue(TypeSpec? spec, BoundArguments? bound, HashSet<string> visiting)
         {
             switch (spec)
             {
@@ -506,7 +504,7 @@ namespace BindingsGeneration
                         return StoresClientAddressOnlyValue(named.GenericParameters[0], bound, visiting);
                     if (!named.HasModule())
                         return named.GenericParameters.Count == 0 && named.InnerType is null
-                            && bound is not null && bound.TryGetValue(named.Name, out var boundAddressOnly) && boundAddressOnly;
+                            && bound is not null && bound.AddressOnly.TryGetValue(named.Name, out var boundAddressOnly) && boundAddressOnly;
                     if (TryGetOwnDeclaration(named, out var localDecl))
                     {
                         switch (localDecl)
@@ -573,12 +571,13 @@ namespace BindingsGeneration
         /// <summary>
         /// Whether a stored property's reference ownership alone moves the struct through memory.
         /// The runtime tracks a <c>weak</c> reference by its address, so it is never loadable. An
-        /// <c>unowned</c> one is loadable only to a native Swift class; to an Objective-C class, an
-        /// <c>AnyObject</c> or a class-bound existential it is tracked the same way as a weak one. An
-        /// <c>unowned(unsafe)</c> reference is a plain pointer. Another module's class counts as native
-        /// when its record is a class not rooted in Objective-C.
+        /// <c>unowned</c> one is loadable only to a native Swift class, or to an existential a native
+        /// Swift class constrains; to an Objective-C class, an <c>AnyObject</c> or another class-bound
+        /// existential it is tracked the same way as a weak one. An <c>unowned(unsafe)</c> reference is
+        /// a plain pointer. A generic parameter stands for the argument <paramref name="bound"/> binds
+        /// it to, and is never loadable unbound.
         /// </summary>
-        private bool OwnershipMovesFieldThroughMemory(PropertyDecl property)
+        private bool OwnershipMovesFieldThroughMemory(PropertyDecl property, BoundArguments? bound)
         {
             switch (property.ReferenceOwnership)
             {
@@ -588,48 +587,42 @@ namespace BindingsGeneration
                     var referent = property.SwiftTypeSpec is NamedTypeSpec { Name: "Swift.Optional", GenericParameters.Count: 1 } optional
                         ? optional.GenericParameters[0]
                         : property.SwiftTypeSpec;
-                    if (referent is not NamedTypeSpec { IsAny: false } named || !named.HasModule())
-                        return true;
-                    if (TryGetOwnDeclaration(named, out var decl))
-                        return decl is not ClassDecl referentClass || !IsNativeSwiftClass(referentClass);
-                    return !IsNativeSwiftClassRecord(named);
+                    if (referent is NamedTypeSpec { GenericParameters.Count: 0, InnerType: null } parameter && !parameter.HasModule()
+                        && bound is not null && bound.Types.TryGetValue(parameter.Name, out var argument))
+                        referent = argument;
+                    return referent switch
+                    {
+                        NamedTypeSpec { IsAny: false } named => !IsNativeSwiftClassType(named),
+                        ProtocolListTypeSpec composition => !composition.Protocols.Keys.Any(IsNativeSwiftClassType),
+                        _ => true,
+                    };
                 default:
                     return false;
             }
         }
 
-        /// <summary>
-        /// Whether a class this module declares is a native Swift class: its whole superclass chain is
-        /// this module's, with no Objective-C class at the root. Read from the declarations, since the
-        /// hierarchy pass that marks Objective-C roots runs after the value types are processed.
-        /// </summary>
-        private bool IsNativeSwiftClass(ClassDecl classDecl)
+        /// <summary>Whether <paramref name="named"/> is a native Swift class, this module's or another's.</summary>
+        private bool IsNativeSwiftClassType(NamedTypeSpec named)
         {
-            if (classDecl.HasObjCSuperclass)
+            if (!named.HasModule())
                 return false;
-            foreach (var superclassName in classDecl.SuperclassNames)
-            {
-                var superclassSpec = new NamedTypeSpec(superclassName);
-                if (_typeDecls.TryGetValue(superclassSpec, out var superclass))
-                {
-                    if (superclass is not ClassDecl { HasObjCSuperclass: false })
-                        return false;
-                }
-                else if (!IsNativeSwiftClassRecord(superclassSpec))
-                    return false;
-            }
-            return true;
+            if (TryGetOwnDeclaration(named, out var decl))
+                return decl is ClassDecl referentClass && IsNativeSwiftClass(referentClass);
+            return IsNativeSwiftClassRecord(named);
         }
 
         /// <summary>
-        /// Whether another module's record describes a native Swift class: a class neither rooted in
-        /// nor bridged from Objective-C, and not one of the SDK's Objective-C classes.
+        /// Whether a class this module declares is a native Swift class. Read from the declarations,
+        /// since the hierarchy pass that marks Objective-C roots runs after the value types are processed.
         /// </summary>
+        private bool IsNativeSwiftClass(ClassDecl classDecl) => SwiftClassNativity.IsNative(
+            classDecl,
+            name => TryGetOwnDeclaration(new NamedTypeSpec(name), out var decl) ? decl : null,
+            name => TryGetTypeRecord(new NamedTypeSpec(name), out var record) ? record : null);
+
+        /// <summary>Whether another module's record describes a native Swift class.</summary>
         private bool IsNativeSwiftClassRecord(NamedTypeSpec named)
-            => TryGetTypeRecord(named, out var record)
-               && record.Kind == TypeRecordKind.Class
-               && (record.Flags & (TypeRecordFlags.ObjCRooted | TypeRecordFlags.ObjCBridged)) == 0
-               && !TypeDatabaseExtensions.IsObjCClassSwiftType(SwiftTypeName.FromTypeSpec(named));
+            => TryGetTypeRecord(named, out var record) && SwiftClassNativity.IsNative(record);
 
         /// <summary>Whether a struct or enum was declared <c>@frozen</c>, before processing overwrote its flag.</summary>
         private bool DeclaredFrozen(TypeDecl decl, bool current) =>
@@ -676,34 +669,42 @@ namespace BindingsGeneration
         /// <summary>
         /// Whether <paramref name="use"/>, a specialization of a frozen struct or enum this module
         /// declares, stores an address-only value inline: in a struct's stored properties, or in the
-        /// payload of an enum case that is not <c>indirect</c>. Each generic parameter is bound to
-        /// whether its argument is address-only, the arguments of every segment of
-        /// <paramref name="use"/> in order, outermost first, the order of the declaration's own
-        /// signature.
+        /// payload of an enum case that is not <c>indirect</c>. Each generic parameter is bound to its
+        /// argument, the arguments of every segment of <paramref name="use"/> in order, outermost
+        /// first, the order of the declaration's own signature; an argument that is itself a parameter
+        /// of the declaration being walked stands for what that one is bound to.
         /// </summary>
         private bool DeclarationStoresClientAddressOnlyValue(TypeDecl decl, NamedTypeSpec use,
-            IReadOnlyDictionary<string, bool>? bound, HashSet<string> visiting)
+            BoundArguments? bound, HashSet<string> visiting)
         {
             var arguments = new List<TypeSpec>();
             for (var segment = use; segment is not null; segment = segment.InnerType)
                 arguments.AddRange(segment.GenericParameters);
             var parameters = GenericSignatureParser.ParseSignature(decl.RawGenericSig).Parameters;
-            Dictionary<string, bool>? binding = null;
+            BoundArguments? binding = null;
             if (parameters.Count > 0 && parameters.Count == arguments.Count)
             {
-                binding = new Dictionary<string, bool>(StringComparer.Ordinal);
+                var addressOnly = new Dictionary<string, bool>(StringComparer.Ordinal);
+                var types = new Dictionary<string, TypeSpec>(StringComparer.Ordinal);
                 for (int i = 0; i < parameters.Count; i++)
-                    binding[parameters[i]] = StoresClientAddressOnlyValue(arguments[i], bound, visiting);
+                {
+                    addressOnly[parameters[i]] = StoresClientAddressOnlyValue(arguments[i], bound, visiting);
+                    types[parameters[i]] = arguments[i] is NamedTypeSpec { GenericParameters.Count: 0, InnerType: null } parameter
+                                           && !parameter.HasModule() && bound is not null && bound.Types.TryGetValue(parameter.Name, out var outer)
+                        ? outer
+                        : arguments[i];
+                }
+                binding = new BoundArguments(addressOnly, types);
             }
 
             // A specialization already on the walk is being judged by the frame that put it there.
             var key = decl.SwiftTypeName.ModuleQualifiedName
-                + (binding is null ? "" : "<" + string.Join(",", parameters.Select(p => binding[p] ? "r" : "l")) + ">");
+                + (binding is null ? "" : "<" + string.Join(",", parameters.Select(p => binding.Types[p].ToString(true))) + ">");
             if (!visiting.Add(key))
                 return false;
             try
             {
-                return (decl is StructDecl storedIn && storedIn.Properties.Any(p => !p.IsStatic && p.HasStorage && OwnershipMovesFieldThroughMemory(p)))
+                return (decl is StructDecl storedIn && storedIn.Properties.Any(p => !p.IsStatic && p.HasStorage && OwnershipMovesFieldThroughMemory(p, binding)))
                        || InlineStorage(decl).Any(stored => StoresClientAddressOnlyValue(stored, binding, visiting));
             }
             finally
@@ -711,6 +712,12 @@ namespace BindingsGeneration
                 visiting.Remove(key);
             }
         }
+
+        /// <summary>
+        /// What each generic parameter of a declaration being walked is bound to: whether its argument
+        /// is address-only stored inline, and the argument itself.
+        /// </summary>
+        private sealed record BoundArguments(IReadOnlyDictionary<string, bool> AddressOnly, IReadOnlyDictionary<string, TypeSpec> Types);
 
         /// <summary>
         /// The types a struct or enum stores inline: a struct's stored instance properties, an enum's
@@ -1947,12 +1954,23 @@ namespace BindingsGeneration
                         continue;
                     }
 
-                    // Cross-module: check parent TypeRecord in the global database.
-                    // Skip generic superclass names (contain '<') — SwiftTypeName rejects them.
+                    // A specialized superclass is left unlinked above; it is keyed without its arguments,
+                    // here and in the global database.
                     if (classDecl.DirectSuperclassName != null &&
-                        !classDecl.DirectSuperclassName.Contains('<'))
+                        classDecl.ResolvedSuperclass is null &&
+                        classesByName.TryGetValue(SwiftClassNativity.WithoutGenericArguments(classDecl.DirectSuperclassName), out var specializedSuperclass) &&
+                        specializedSuperclass.IsObjCRooted)
                     {
-                        var parentSwiftName = SwiftTypeName.FromModuleQualifiedName(classDecl.DirectSuperclassName);
+                        classDecl.IsObjCRooted = true;
+                        changed = true;
+                        continue;
+                    }
+
+                    // Cross-module: check parent TypeRecord in the global database.
+                    if (classDecl.DirectSuperclassName != null)
+                    {
+                        var parentSwiftName = SwiftTypeName.FromModuleQualifiedName(
+                            SwiftClassNativity.WithoutGenericArguments(classDecl.DirectSuperclassName));
                         if (_typeDatabase.TryGetTypeRecord(parentSwiftName, out var parentRecord) &&
                             MarshallingHelpers.IsObjCRooted(parentRecord))
                         {

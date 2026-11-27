@@ -233,7 +233,7 @@ namespace BindingsGeneration
                     if (!propertyDecl.HasStorage || propertyDecl.IsStatic)
                         continue;
 
-                    switch (ClassifyFrozenStructField(propertyDecl.SwiftTypeSpec, env.TypeDatabase, out int fieldByteSize))
+                    switch (ClassifyFrozenStructField(propertyDecl.SwiftTypeSpec, env.TypeDatabase, out int fieldByteSize, structDecl))
                     {
                         case FrozenFieldLayoutKind.IntPtrFields:
                             EmitIntPtrFields(csWriter, propertyDecl.Name, fieldByteSize);
@@ -542,8 +542,13 @@ namespace BindingsGeneration
         /// reserve. Shared by the field-emission loop and <see cref="HasIndeterminateBufferLayout"/>
         /// so the skip decision and the emitted layout can never drift apart.
         /// </summary>
+        /// <param name="container">
+        /// The struct storing the field. A specialization of a generic struct its module declares
+        /// (<c>Box&lt;Int&gt;</c>) has no record of its own, so its size is laid out from the
+        /// declaration with its arguments bound.
+        /// </param>
         internal static FrozenFieldLayoutKind ClassifyFrozenStructField(
-            TypeSpec fieldTypeSpec, ITypeDatabase typeDatabase, out int byteSize)
+            TypeSpec fieldTypeSpec, ITypeDatabase typeDatabase, out int byteSize, StructDecl? container = null)
         {
             byteSize = IntPtr.Size;
 
@@ -582,10 +587,34 @@ namespace BindingsGeneration
                 // a per-instantiation generic value type that can't be sized fails closed.
                 if (SwiftValueLayout.TryResolveReferenceFieldSize(fieldRecord, fieldTypeSpec, out byteSize))
                     return FrozenFieldLayoutKind.IntPtrFields;
+                if (container is not null && TryLayOutSpecialization(fieldTypeSpec, fieldRecord, typeDatabase, container, out byteSize))
+                    return FrozenFieldLayoutKind.IntPtrFields;
                 return FrozenFieldLayoutKind.Indeterminate;
             }
 
             return FrozenFieldLayoutKind.TypedField;
+        }
+
+        /// <summary>
+        /// The inline size of a specialization of a generic struct the container's module declares,
+        /// laid out from that declaration with each parameter bound to its argument. The Buffer mirrors
+        /// it as pointer words, so only a layout of whole, pointer-aligned words is placed; a resilient,
+        /// unknown, address-only or sub-word specialization is not.
+        /// </summary>
+        private static bool TryLayOutSpecialization(TypeSpec fieldTypeSpec, TypeRecord fieldRecord, ITypeDatabase typeDatabase,
+            StructDecl container, out int byteSize)
+        {
+            byteSize = IntPtr.Size;
+            if (fieldRecord.Kind != TypeRecordKind.Struct || fieldTypeSpec is not NamedTypeSpec { GenericParameters.Count: > 0 }
+                || fieldRecord.SwiftTypeName.Module != container.SwiftTypeName.Module)
+                return false;
+            // The field is emitted as pointer words, so only a specialization laid out in whole words
+            // keeps the fields after it where Swift puts them.
+            var layout = SwiftLayoutResolver.ForModuleOf(container, typeDatabase).Resolve(fieldTypeSpec).Layout;
+            if (layout is null || layout.Alignment != IntPtr.Size || layout.Size % IntPtr.Size != 0)
+                return false;
+            byteSize = layout.Size;
+            return true;
         }
 
         /// <summary>
@@ -608,7 +637,7 @@ namespace BindingsGeneration
                 // size-derivability is irrelevant to whether the Buffer can be laid out — skip them here too.
                 if (!propertyDecl.HasStorage || propertyDecl.IsStatic)
                     continue;
-                if (ClassifyFrozenStructField(propertyDecl.SwiftTypeSpec, typeDatabase, out _) == FrozenFieldLayoutKind.Indeterminate)
+                if (ClassifyFrozenStructField(propertyDecl.SwiftTypeSpec, typeDatabase, out _, structDecl) == FrozenFieldLayoutKind.Indeterminate)
                     return true;
             }
 

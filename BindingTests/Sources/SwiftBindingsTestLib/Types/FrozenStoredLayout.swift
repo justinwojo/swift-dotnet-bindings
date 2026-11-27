@@ -157,3 +157,64 @@ public func makeStoredLayoutShapeCell(_ sides: Int, _ count: Int) -> StoredLayou
 }
 public func storedLayoutShapeCellName(_ cell: StoredLayoutShapeCell) -> String { "\(cell.shape.sides) sides/\(cell.count)" }
 public func storedLayoutShapeCellEcho(_ cell: StoredLayoutShapeCell) -> StoredLayoutShapeCell { cell }
+
+// MARK: Generic fields take the convention of their specialization
+
+/// A native Swift class: an `unowned` reference to it is a single pointer.
+public final class StoredLayoutAnchor {
+    public let id: Int
+    public init(id: Int) { self.id = id }
+}
+
+/// Unspecialized, the referent's class is unknown; specialized with a native class the box is one
+/// pointer, and with an Objective-C class it would be address-only.
+@frozen public struct StoredLayoutUnownedBox<T: AnyObject> {
+    public unowned var reference: T
+    public init(reference: T) { self.reference = reference }
+}
+
+/// The box specialized with a native class, then an Int: Swift passes it in two registers.
+@frozen public struct StoredLayoutUnownedHolder {
+    public var box: StoredLayoutUnownedBox<StoredLayoutAnchor>
+    public var count: Int
+    public init(box: StoredLayoutUnownedBox<StoredLayoutAnchor>, count: Int) { self.box = box; self.count = count }
+}
+
+public func makeStoredLayoutUnownedHolder(_ anchor: StoredLayoutAnchor, _ count: Int) -> StoredLayoutUnownedHolder {
+    StoredLayoutUnownedHolder(box: StoredLayoutUnownedBox(reference: anchor), count: count)
+}
+public func storedLayoutUnownedHolderTotal(_ holder: StoredLayoutUnownedHolder) -> Int { holder.box.reference.id + holder.count }
+public func storedLayoutUnownedHolderEcho(_ holder: StoredLayoutUnownedHolder) -> StoredLayoutUnownedHolder { holder }
+
+/// A generic struct storing its parameter inline: as wide as what it is specialized with.
+@frozen public struct StoredLayoutWrap<T> {
+    public var value: T
+    public init(value: T) { self.value = value }
+}
+
+/// `StoredLayoutWrap<Int>` then an Int: two registers.
+@frozen public struct StoredLayoutWrappedNumber {
+    public var wrapped: StoredLayoutWrap<Int>
+    public var count: Int
+    public init(wrapped: StoredLayoutWrap<Int>, count: Int) { self.wrapped = wrapped; self.count = count }
+}
+
+public func makeStoredLayoutWrappedNumber(_ value: Int, _ count: Int) -> StoredLayoutWrappedNumber {
+    StoredLayoutWrappedNumber(wrapped: StoredLayoutWrap(value: value), count: count)
+}
+public func storedLayoutWrappedNumberTotal(_ holder: StoredLayoutWrappedNumber) -> Int { holder.wrapped.value * 100 + holder.count }
+public func storedLayoutWrappedNumberEcho(_ holder: StoredLayoutWrappedNumber) -> StoredLayoutWrappedNumber { holder }
+
+/// `StoredLayoutWrap<String>` then an Int: three registers, the middle one a reference.
+@frozen public struct StoredLayoutWrappedText {
+    public var wrapped: StoredLayoutWrap<String>
+    public var count: Int
+    public init(wrapped: StoredLayoutWrap<String>, count: Int) { self.wrapped = wrapped; self.count = count }
+}
+
+public func makeStoredLayoutWrappedText(_ text: String, _ count: Int) -> StoredLayoutWrappedText {
+    StoredLayoutWrappedText(wrapped: StoredLayoutWrap(value: text), count: count)
+}
+public func storedLayoutWrappedTextName(_ holder: StoredLayoutWrappedText) -> String { "\(holder.wrapped.value)/\(holder.count)" }
+public func storedLayoutWrappedTextCount(_ holder: StoredLayoutWrappedText) -> Int { holder.wrapped.value.count * 100 + holder.count }
+public func storedLayoutWrappedTextEcho(_ holder: StoredLayoutWrappedText) -> StoredLayoutWrappedText { holder }
