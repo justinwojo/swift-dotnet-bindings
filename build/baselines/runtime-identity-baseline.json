@@ -1,8 +1,8 @@
 {
-  "git_sha": "7383cf60",
+  "git_sha": "ea93a875e",
   "platforms": {
     "simulator": {
-      "pass_count": 4679,
+      "pass_count": 5180,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -63,11 +63,6 @@
           "class": "NestedOfParentTests",
           "method": "TestCrossHostStruct_AcceptsForeignOuterNested",
           "reason": "Cross-host nested-of-parent destroy-witness fault (doc 14 hypothesis 3); foreign outer\u0027s VWT does not thread through \u0060any _SBW_GSF_X.Type\u0060 existential dispatch."
-        },
-        {
-          "class": "NonStandardEnumTests",
-          "method": "TestPermissionCaseValues",
-          "reason": "Non-@objc enums export no raw values: the Swift compiler strips explicit raw values (execute=4) from the .swiftinterface for plain \u0060enum: UInt32\u0060, and the ABI JSON lacks them too, so there is no source of truth \u2014 execute necessarily falls back to the declaration-order ordinal 3. @objc enums DO preserve raw values; that path is gated by the AuthErrorCodeLike tests below."
         },
         {
           "class": "OptionalMarshallingTests",
@@ -365,7 +360,7 @@
       "known_fails": []
     },
     "macos": {
-      "pass_count": 3727,
+      "pass_count": 4001,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -406,11 +401,6 @@
           "class": "NestedOfParentTests",
           "method": "TestCrossHostStruct_AcceptsForeignOuterNested",
           "reason": "Cross-host nested-of-parent destroy-witness fault (doc 14 hypothesis 3); foreign outer\u0027s VWT does not thread through \u0060any _SBW_GSF_X.Type\u0060 existential dispatch."
-        },
-        {
-          "class": "NonStandardEnumTests",
-          "method": "TestPermissionCaseValues",
-          "reason": "Non-@objc enums export no raw values: the Swift compiler strips explicit raw values (execute=4) from the .swiftinterface for plain \u0060enum: UInt32\u0060, and the ABI JSON lacks them too, so there is no source of truth \u2014 execute necessarily falls back to the declaration-order ordinal 3. @objc enums DO preserve raw values; that path is gated by the AuthErrorCodeLike tests below."
         },
         {
           "class": "OwnershipGCStressTests",
@@ -451,7 +441,7 @@
       "known_fails": []
     },
     "maccatalyst": {
-      "pass_count": 3696,
+      "pass_count": 4020,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -492,11 +482,6 @@
           "class": "NestedOfParentTests",
           "method": "TestCrossHostStruct_AcceptsForeignOuterNested",
           "reason": "Cross-host nested-of-parent destroy-witness fault (doc 14 hypothesis 3); foreign outer\u0027s VWT does not thread through \u0060any _SBW_GSF_X.Type\u0060 existential dispatch."
-        },
-        {
-          "class": "NonStandardEnumTests",
-          "method": "TestPermissionCaseValues",
-          "reason": "Non-@objc enums export no raw values: the Swift compiler strips explicit raw values (execute=4) from the .swiftinterface for plain \u0060enum: UInt32\u0060, and the ABI JSON lacks them too, so there is no source of truth \u2014 execute necessarily falls back to the declaration-order ordinal 3. @objc enums DO preserve raw values; that path is gated by the AuthErrorCodeLike tests below."
         },
         {
           "class": "OptionalMarshallingTests",

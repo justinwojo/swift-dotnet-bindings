@@ -33,6 +33,15 @@ namespace BindingsGeneration
         private readonly HashSet<string> _processingInProgress = new(StringComparer.Ordinal);
 
         /// <summary>
+        /// Whether each processed struct was declared <c>@frozen</c>. Processing overwrites
+        /// <see cref="StructDecl.IsFrozen"/> with the record's flag, which also folds in projection
+        /// policy, so the client-layout check reads the declaration from here once it has.
+        /// </summary>
+        private readonly Dictionary<StructDecl, bool> _declaredFrozen = new(ReferenceEqualityComparer.Instance);
+
+        private SwiftLayoutResolver? _foreignLayout;
+
+        /// <summary>
         /// Raw Objective-C class names declared in this module's OWN bridging header (the class
         /// records synthesized by <see cref="ObjC.ObjCBridgeRecordFactory"/>). Used to re-anchor a
         /// locally-declared pure-ObjC superclass whose ABI <c>superclassNames</c> segment names an
@@ -222,6 +231,7 @@ namespace BindingsGeneration
                 RegisterStructType(namedTypeSpec, structDecl, swiftTypeInfo, flags);
 
             // Update the struct declaration in memory so future passes see these properties.
+            _declaredFrozen.TryAdd(structDecl, structDecl.IsFrozen);
             structDecl.IsFrozen = (flags & TypeRecordFlags.Frozen) != 0;
         }
 
@@ -358,8 +368,17 @@ namespace BindingsGeneration
             if (structDecl.IsFrozen)
                 flags |= TypeRecordFlags.Frozen;
 
+            var resilienceWalk = new HashSet<string>(StringComparer.Ordinal);
             foreach (var propertyDecl in structDecl.Properties)
             {
+                // A stored field whose layout is resilient to clients leaves the struct's own layout
+                // unknown to them, `@frozen` or not, so Swift passes and returns the whole struct
+                // through memory. Checked ahead of the NamedTypeSpec narrowing below, which would drop
+                // a tuple field whole.
+                if (!propertyDecl.IsStatic && propertyDecl.HasStorage
+                    && StoresClientResilientValue(propertyDecl.SwiftTypeSpec, bound: null, resilienceWalk))
+                    flags &= ~TypeRecordFlags.Frozen;
+
                 if (propertyDecl.SwiftTypeSpec is not NamedTypeSpec namedPropertyType)
                     continue;
 
@@ -413,6 +432,120 @@ namespace BindingsGeneration
             }
 
             return flags;
+        }
+
+        /// <summary>
+        /// True when <paramref name="spec"/>, stored inline in a struct, holds a value type whose
+        /// layout is resilient to clients: a non-frozen enum or struct, directly, as an Optional's
+        /// payload or as a tuple element, each of which a struct stores inline.
+        ///
+        /// <para>
+        /// Under library evolution a client cannot know such a type's size, so a struct storing one
+        /// is address-only to it even when the struct itself is <c>@frozen</c>: Swift returns it
+        /// through the indirect-result register and takes it as an argument by address. A struct
+        /// left frozen here would be returned in registers by a direct call or a tail-call thunk,
+        /// and Swift would write the result through whatever the indirect-result register held.
+        /// </para>
+        ///
+        /// <para>
+        /// A type this module declares, including one nested in its extension of another module's
+        /// type, is answered from its declaration, whatever the processing order and whatever its
+        /// record says: a struct's record flag also carries projection policy
+        /// (a computed property can clear it), which says nothing about the stored layout. A struct is
+        /// resilient when it is not declared <c>@frozen</c> or stores something that is; a generic
+        /// parameter it stores is as resilient as the argument bound to it, so an argument it never
+        /// stores does not count. An <c>@objc</c> enum is a C enum, stored as its raw value whether or
+        /// not it is <c>@frozen</c>. Another module's type, including one this module only extends, is
+        /// answered by the layout resolver, which knows the standard library's and the SDK's fixed
+        /// representations and otherwise reads the record its own module's processing wrote. A type
+        /// it cannot place is not answered here.
+        /// </para>
+        /// </summary>
+        /// <param name="bound">
+        /// Whether each generic parameter of the struct being walked is bound to a resilient argument.
+        /// </param>
+        /// <param name="visiting">The specializations being walked, so a cycle ends.</param>
+        private bool StoresClientResilientValue(TypeSpec? spec, IReadOnlyDictionary<string, bool>? bound, HashSet<string> visiting)
+        {
+            switch (spec)
+            {
+                case TupleTypeSpec tuple:
+                    return tuple.Elements.Any(element => StoresClientResilientValue(element, bound, visiting));
+
+                case NamedTypeSpec named:
+                    if (named.Name == "Swift.Optional" && named.GenericParameters.Count == 1 && named.InnerType is null)
+                        return StoresClientResilientValue(named.GenericParameters[0], bound, visiting);
+                    if (named.IsAny)
+                        return false;
+                    if (!named.HasModule())
+                        return named.GenericParameters.Count == 0 && named.InnerType is null
+                            && bound is not null && bound.TryGetValue(named.Name, out var boundResilient) && boundResilient;
+                    // A type nested in another, an extension's receiver included, belongs to the module
+                    // whose declarations hold it; a top-level declaration another module names is a
+                    // receiver this module only extends.
+                    if (_typeDecls.TryGetValue(DeclLookupKey(named), out var localDecl)
+                        && (localDecl.ParentDecl is TypeDecl
+                            || string.Equals(localDecl.SwiftTypeName.Module, _module, StringComparison.Ordinal)))
+                    {
+                        switch (localDecl)
+                        {
+                            case EnumDecl localEnum:
+                                return !localEnum.IsFrozen && !localEnum.IsObjC;
+                            case StructDecl localStruct:
+                                return StructStoresClientResilientValue(localStruct, named, bound, visiting);
+                            default:
+                                return false;
+                        }
+                    }
+                    if (TryGetTypeRecord(named, out var record)
+                        && record.Kind == TypeRecordKind.Enum && record.SimpleEnumStorage == SimpleEnumStorage.RawValue)
+                        return false;
+                    _foreignLayout ??= new SwiftLayoutResolver(Array.Empty<ModuleDecl>(), _typeDatabase);
+                    return _foreignLayout.Resolve(named).IsIndirect;
+
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// Whether <paramref name="use"/>, a specialization of a struct this module declares, stores a
+        /// value resilient to clients. Each generic parameter is bound to whether its argument is, the
+        /// arguments of every segment of <paramref name="use"/> in order, outermost first, the order of
+        /// the declaration's own signature.
+        /// </summary>
+        private bool StructStoresClientResilientValue(StructDecl decl, NamedTypeSpec use,
+            IReadOnlyDictionary<string, bool>? bound, HashSet<string> visiting)
+        {
+            if (!(_declaredFrozen.TryGetValue(decl, out var declaredFrozen) ? declaredFrozen : decl.IsFrozen))
+                return true;
+
+            var arguments = new List<TypeSpec>();
+            for (var segment = use; segment is not null; segment = segment.InnerType)
+                arguments.AddRange(segment.GenericParameters);
+            var parameters = GenericSignatureParser.ParseSignature(decl.RawGenericSig).Parameters;
+            Dictionary<string, bool>? binding = null;
+            if (parameters.Count > 0 && parameters.Count == arguments.Count)
+            {
+                binding = new Dictionary<string, bool>(StringComparer.Ordinal);
+                for (int i = 0; i < parameters.Count; i++)
+                    binding[parameters[i]] = StoresClientResilientValue(arguments[i], bound, visiting);
+            }
+
+            // A specialization already on the walk is being judged by the frame that put it there.
+            var key = decl.SwiftTypeName.ModuleQualifiedName
+                + (binding is null ? "" : "<" + string.Join(",", parameters.Select(p => binding[p] ? "r" : "l")) + ">");
+            if (!visiting.Add(key))
+                return false;
+            try
+            {
+                return decl.Properties.Any(p => !p.IsStatic && p.HasStorage
+                    && StoresClientResilientValue(p.SwiftTypeSpec, binding, visiting));
+            }
+            finally
+            {
+                visiting.Remove(key);
+            }
         }
 
         /// <summary>
