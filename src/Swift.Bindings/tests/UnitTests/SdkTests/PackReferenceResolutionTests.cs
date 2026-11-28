@@ -261,6 +261,9 @@ public sealed class PackReferenceResolutionTests : IDisposable
         // A command of its own: no build server or node is shared with the test host's builds.
         info.Environment["MSBUILDDISABLENODEREUSE"] = "1";
         info.Environment["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1";
+        // The fixture's nuget.config names its own package folder. An inherited NUGET_PACKAGES (a toolchain
+        // profile sets one) would win over it and restore into the caller's cache instead.
+        info.Environment.Remove("NUGET_PACKAGES");
         using var process = Process.Start(info)!;
         var stdout = process.StandardOutput.ReadToEndAsync();
         var stderr = process.StandardError.ReadToEndAsync();
