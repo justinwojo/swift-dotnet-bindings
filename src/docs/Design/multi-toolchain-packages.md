@@ -68,7 +68,7 @@ pack knows the SDK version and paths. One writer composes both (`PackageCopyDecl
 | SWIFTBIND137 | pack (`PrepareSwiftBindingPackageCopy`) | an Apple-framework copy labelled for another platform SDK than the one it was generated from: the label must have the SDK's major version and be no newer. The SDK judged (and declared) is the one the binding's assembly records it was generated from, in its wrapper identity, else the one the SDK recorded it was built against (`SwiftBindings.PlatformSdk`, a pure Objective-C binding's only record), not the SDK selected when it packs; the selected SDK stands in only for an assembly that records neither. A versionless Apple-framework project (the template's default) is labelled 26.0 on every .NET 10 workload, so on Xcode 27.2 it must name its copy (`net10.0-ios27.2`) to pack. A library binding is never refused, so a versionless `net10.0-ios` library binding packed on Xcode 27.2 keeps its 26.0 label and serves .NET 10 + Xcode 26 apps: its surface is the library's, not the SDK's. |
 | SWIFTBIND138 | pack and merge | consumer targets that reference `runtimes/` or another copy's `native/`, found in the text, or a `NativeReference` that does not resolve, from `buildTransitive/<T>/` as NuGet lays the file out, into `native/<T>/` (one through a property, relative to the consuming project, absolute, or out of the package); at merge, every refusal below. |
 | SWIFTBIND139 | every app build | a copy older than the build's toolchain (another .NET version, or a lower platform SDK major): an informational message by default, an error with `SwiftBindingsRequireExactCopy=true`. |
-| SWIFTBIND133 | pack (`SwiftBindings.Sdk`, and a standalone generated project through `SwiftBindings.Runtime`'s targets) and merge | the transition check, paired by full TFM: `lib/<T>/` is checked only against `native/<T>/`. A package whose `buildTransitive/` declares a copy is held to that rule even when no native landed under `native/<T>/`. It includes the wrapper identity check below. |
+| SWIFTBIND133 | pack (`SwiftBindings.Sdk`, and a standalone generated project through `SwiftBindings.Runtime`'s targets) and merge | the transition check, paired by full TFM: `lib/<T>/` is checked only against `native/<T>/`. A package whose `buildTransitive/` declares a copy is held to that rule even when no native landed under `native/<T>/`. Of a copy that ships consumer targets, only the natives at or under a path a `NativeReference` of those targets names are read (of a referenced XCFramework, only the library its `Info.plist` names in each slice it lists), since an app embeds no other; an assembly whose wrapper, or a library its manifests route through, is in the copy only where no reference reaches is refused (a wrapper absent altogether is the SWIFTBIND051 degrade and passes). It includes the wrapper identity check below. |
 | SWIFTBIND132 | every app build the consumer transition check runs in (Mono and the .NET 11 CoreCLR engines on iOS, tvOS and Mac Catalyst; not NativeAOT or macOS) | reads the natives the app actually references, which are the selected copy's (SWIFTBIND136 guarantees the assembly is that copy's too), including the wrapper identity check below. |
 | SWIFTBIND140 | merge | a warning: an entry past the Windows restore path budget (below). An error with `SwiftBindingsMergeRequireWindowsPathBudget=true`. |
 
@@ -133,16 +133,36 @@ copy), an id or version that is not a plain file name, and — per platform, ord
 platform version — a newer copy whose public API (types with the bases and interfaces they convert
 to through the assembly's own base chain, members with their signatures, static or instance binding
 and public or protected access; widening protected to public is allowed) or per-architecture native exports lack an
-older copy's (a `resources` copy's exports are read from the images inside its resource package,
+older copy's (an image in an XCFramework is compared with the newer XCFramework's slice of the same
+platform and variant, as its `Info.plist` lists it (XML or binary) or, without one, its directory name
+spells it, so a newer build that adds an architecture, `macos-arm64` becoming `macos-arm64_x86_64`,
+merges while one that drops an architecture or a platform is refused, from its binary or from the
+slice's `SupportedArchitectures`; where a plist names a slice's library (`LibraryPath`), only that
+library is compared, as it is the one a build links; a static archive, a static
+framework's binary or a bare `.a` slice, is compared per architecture by its linkable symbols: every
+external, non-private symbol the older archive's Mach-O members define must be one the newer archive
+gives a link, from a Mach-O member or, for a member that does not read as one such as LLVM bitcode,
+from the archive's table of contents, and every older copy's archive is compared, not only the
+previous one's, since a symbol can pass into bitcode in one copy and be lost in the next (a thin
+archive of bitcode alone names no architecture and is paired with the other copy's thin archive); a `resources` copy's exports are read from the images inside its resource package,
 whose symbolic links, such as a versioned framework's root binary, are followed to the image they
 name, so the same pair of images is compared once and a link the comparison follows that names
 nothing in the package is refused; a
 `none` copy has none to compare) (a library compiles against the oldest copy,
-the app that consumes it runs the newest). A type a signature, base or interface names from another
+the app that consumes it runs the newest). A newer copy also may not narrow what a library may do with
+an older copy's types beyond calling them: seal a class it could derive from (not sealed, with a public
+or protected instance constructor), make abstract a class it could construct, make a method it could
+override (virtual, not final and visible to it, declared on the class or a base of the same assembly)
+non-virtual or final, or hide it behind a new virtual method of the same signature, leave a class it could derive from with an
+abstract method to implement that the older copy did not (declared on the class or inherited from a
+base of the same assembly, at any access), or add a constraint to a generic parameter the older copy's type or
+method has (one loosened to a type the older constraint converts to, closed generics included, is not
+added; a new constrained member or type binds no older library). A type a signature, base or interface names from another
 assembly is keyed with that assembly's name, so a same-named type of another assembly is another
 type. A newer copy must also keep every value a compiler copies out of an older copy into the code
 that uses it: each public or protected constant field (an enum member is one) and each parameter
-default, keyed by member and, for a default, by parameter position. A library compiled against the
+default, keyed by member and, for a default, by parameter position, with the constant's own type (a
+boxed `Int32` 1 and `Int64` 1 default of an `object` parameter differ). A library compiled against the
 older copy holds those values as literals and keeps them in an app that runs the newer copy, so a
 changed value, or one the newer copy no longer declares (a dropped default, a constant turned into a
 field), changes what the library does with no member missing. The refusal names ten values with both

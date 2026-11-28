@@ -1202,6 +1202,362 @@ public sealed class PackageCopyTests : IDisposable
     }
 
     [Theory]
+    // A newer build that adds an architecture names its slice for it.
+    [InlineData("macos-arm64", "arm64", "macos-arm64_x86_64", "arm64,x86_64", null)]
+    [InlineData("ios-arm64-simulator", "arm64", "ios-arm64_x86_64-simulator", "arm64,x86_64", null)]
+    [InlineData("ios-arm64-maccatalyst", "arm64", "ios-arm64_x86_64-maccatalyst", "arm64,x86_64", null)]
+    // One that drops an architecture still drops what the older copy's x86_64 consumers link.
+    [InlineData("macos-arm64_x86_64", "arm64,x86_64", "macos-arm64", "arm64", "has no x86_64 slice")]
+    [InlineData("ios-arm64_x86_64-simulator", "arm64,x86_64", "ios-arm64-simulator", "arm64", "has no x86_64 slice")]
+    // A slice of another platform or variant is no counterpart.
+    [InlineData("ios-arm64-simulator", "arm64", "ios-arm64", "arm64", "/Kit.xcframework's ios simulator slice (ios-arm64-simulator in the older copy)")]
+    [InlineData("ios-arm64-maccatalyst", "arm64", "macos-arm64", "arm64", "/Kit.xcframework's ios maccatalyst slice (ios-arm64-maccatalyst in the older copy)")]
+    public void Merge_ANewerXCFrameworkSliceOfOtherArchitectures_IsComparedAsTheSameSlice(string olderSlice, string olderArches, string newerSlice, string newerArches, string? refused)
+    {
+        if (!OperatingSystem.IsMacOS())
+            return;
+        const string source = "int kit_a(void){return 1;} int kit_b(void){return 2;}";
+        var result = Merge([
+            Contribution("x26", ["net10.0-ios26.0"], extra: [($"native/net10.0-ios26.0/Kit.xcframework/{olderSlice}/Kit.framework/Kit", Dylib("older", source, olderArches.Split(',')))]),
+            Contribution("x27", ["net10.0-ios27.2"], extra: [($"native/net10.0-ios27.2/Kit.xcframework/{newerSlice}/Kit.framework/Kit", Dylib("newer", source, newerArches.Split(',')))]),
+        ], "net10.0-ios26.0", "net10.0-ios27.2");
+        if (refused is null)
+        {
+            Assert.True(result.Problems.IsEmpty, string.Join("\n", result.Problems));
+            Assert.Contains(result.Notes, n => n.Contains($"exports Kit.xcframework/{newerSlice}/Kit.framework/Kit (arm64)", StringComparison.Ordinal) && n.Contains("(0 missing)", StringComparison.Ordinal));
+        }
+        else
+            Assert.Contains(result.Problems, p => p.Contains(refused, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Merge_ANewerXCFrameworkSliceOfOtherArchitectures_ThatLosesAnExport_IsRefused()
+    {
+        if (!OperatingSystem.IsMacOS())
+            return;
+        var result = Merge([
+            Contribution("x26", ["net10.0-ios26.0"], extra: [("native/net10.0-ios26.0/Kit.xcframework/macos-arm64/Kit.framework/Kit", Dylib("older", "int kit_a(void){return 1;} int kit_b(void){return 2;}"))]),
+            Contribution("x27", ["net10.0-ios27.2"], extra: [("native/net10.0-ios27.2/Kit.xcframework/macos-arm64_x86_64/Kit.framework/Kit", Dylib("newer", "int kit_a(void){return 1;}", "arm64", "x86_64"))]),
+        ], "net10.0-ios26.0", "net10.0-ios27.2");
+        var problem = Assert.Single(result.Problems);
+        Assert.Contains("Kit.xcframework/macos-arm64_x86_64/Kit.framework/Kit (arm64) lacks 1 export(s)", problem);
+        Assert.Contains("kit_b", problem);
+    }
+
+    [Fact]
+    public void Merge_XCFrameworkSlices_AreMatchedByTheirInfoPlist()
+    {
+        // The Info.plist names each slice's platform and variant whatever its directory is called.
+        if (!OperatingSystem.IsMacOS())
+            return;
+        static byte[] Plist(string id, string platform, string? variant) => Encoding.UTF8.GetBytes(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?><plist version=\"1.0\"><dict><key>AvailableLibraries</key><array><dict>"
+            + $"<key>LibraryIdentifier</key><string>{id}</string><key>LibraryPath</key><string>Kit.framework</string>"
+            + $"<key>SupportedPlatform</key><string>{platform}</string>"
+            + (variant is null ? "" : $"<key>SupportedPlatformVariant</key><string>{variant}</string>")
+            + "</dict></array><key>CFBundlePackageType</key><string>XFWK</string></dict></plist>");
+        const string source = "int kit_a(void){return 1;}";
+        (string, byte[])[] Copy(string tfm, string id, string platform, string? variant, byte[] image) =>
+            [($"native/{tfm}/Kit.xcframework/Info.plist", Plist(id, platform, variant)), ($"native/{tfm}/Kit.xcframework/{id}/Kit.framework/Kit", image)];
+        var merged = Merge([
+            Contribution("x26", ["net10.0-ios26.0"], extra: Copy("net10.0-ios26.0", "kit-sim", "ios", "simulator", Dylib("older", source))),
+            Contribution("x27", ["net10.0-ios27.2"], extra: Copy("net10.0-ios27.2", "kit-sim-universal", "ios", "simulator", Dylib("newer", source, "arm64", "x86_64"))),
+        ], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.True(merged.Problems.IsEmpty, string.Join("\n", merged.Problems));
+        var refused = Merge([
+            Contribution("x26", ["net10.0-ios26.0"], extra: Copy("net10.0-ios26.0", "kit-sim", "ios", "simulator", Dylib("older", source))),
+            Contribution("x27", ["net10.0-ios27.2"], extra: Copy("net10.0-ios27.2", "kit-sim-universal", "ios", null, Dylib("newer", source, "arm64", "x86_64"))),
+        ], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.Contains(refused.Problems, p => p.Contains("/Kit.xcframework's ios simulator slice (kit-sim in the older copy)", StringComparison.Ordinal));
+
+        // A slice directory of the same name that the newer plist declares for another platform is not
+        // the older slice's counterpart: the newer copy dropped its simulator slice.
+        var relabelled = Merge([
+            Contribution("x26", ["net10.0-ios26.0"], extra: Copy("net10.0-ios26.0", "kit", "ios", "simulator", Dylib("older", source))),
+            Contribution("x27", ["net10.0-ios27.2"], extra: Copy("net10.0-ios27.2", "kit", "ios", null, Dylib("newer", source))),
+        ], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.Contains(relabelled.Problems, p => p.Contains("/Kit.xcframework's ios simulator slice (kit in the older copy)", StringComparison.Ordinal));
+
+        // A binary plist says the same as an XML one.
+        (string, byte[])[] Binary((string Path, byte[] Data)[] copy) => copy.Select(e => e.Path.EndsWith("Info.plist", StringComparison.Ordinal) ? (e.Path, ToBinaryPlist(e.Data)) : e).ToArray();
+        var binary = Merge([
+            Contribution("x26", ["net10.0-ios26.0"], extra: Binary(Copy("net10.0-ios26.0", "kit-sim", "ios", "simulator", Dylib("older", source)))),
+            Contribution("x27", ["net10.0-ios27.2"], extra: Binary(Copy("net10.0-ios27.2", "kit-sim-universal", "ios", "simulator", Dylib("newer", source, "arm64", "x86_64")))),
+        ], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.True(binary.Problems.IsEmpty, string.Join("\n", binary.Problems));
+    }
+
+    private byte[] ToBinaryPlist(byte[] xml)
+    {
+        var path = Path.Combine(tempDir, $"plist-{Guid.NewGuid():N}.plist");
+        File.WriteAllBytes(path, xml);
+        var start = new ProcessStartInfo("plutil", ["-convert", "binary1", path]) { RedirectStandardError = true };
+        using (var process = Process.Start(start)!)
+        {
+            process.StandardError.ReadToEnd();
+            process.WaitForExit();
+            Assert.Equal(0, process.ExitCode);
+        }
+        var bytes = File.ReadAllBytes(path);
+        Assert.True(bytes.AsSpan().StartsWith("bplist"u8));
+        return bytes;
+    }
+
+    [Theory]
+    [InlineData("arm64")]
+    [InlineData("arm64,x86_64")]
+    public void Merge_ANewerStaticArchiveThatLosesALinkableSymbol_IsRefused(string arches)
+    {
+        if (!OperatingSystem.IsMacOS())
+            return;
+        var architectures = arches.Split(',');
+        const string binary = "Kit.xcframework/ios-arm64/Kit.framework/Kit";
+        var older = StaticArchive("older", ["int kit_a(void){return 1;}", "int kit_b(void){return 2;} static int kit_private(void){return 3;}"], architectures);
+        var lost = StaticArchive("lost", ["int kit_a(void){return 1;}", "int kit_c(void){return 3;}"], architectures);
+        var grown = StaticArchive("grown", ["int kit_a(void){return 1;} int kit_b(void){return 2;}", "int kit_c(void){return 3;}"], architectures);
+
+        var refused = Merge([
+            Contribution("x26", ["net10.0-ios26.0"], extra: [($"native/net10.0-ios26.0/{binary}", older)]),
+            Contribution("x27", ["net10.0-ios27.2"], extra: [($"native/net10.0-ios27.2/{binary}", lost)]),
+        ], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.Equal(architectures.Length, refused.Problems.Length);
+        Assert.All(refused.Problems, p => Assert.Contains("lacks 1 linkable symbol(s) of the older copy net10.0-ios26.0 (kit_b)", p));
+        Assert.All(architectures, a => Assert.Contains(refused.Problems, p => p.Contains($"Kit.framework/Kit ({a})", StringComparison.Ordinal)));
+
+        // Members may be split or joined differently: the archive's symbols are what is compared.
+        var accepted = Merge([
+            Contribution("x26", ["net10.0-ios26.0"], extra: [($"native/net10.0-ios26.0/{binary}", older)]),
+            Contribution("x27", ["net10.0-ios27.2"], extra: [($"native/net10.0-ios27.2/{binary}", grown)]),
+        ], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.True(accepted.Problems.IsEmpty, string.Join("\n", accepted.Problems));
+        Assert.Contains(accepted.Notes, n => n.Contains($"archive symbols {binary} (arm64): net10.0-ios26.0 2 -> net10.0-ios27.2 3 (0 missing)", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Merge_ABareStaticArchiveSliceThatLosesALinkableSymbol_IsRefused()
+    {
+        // A library XCFramework's slice is the archive itself (LibraryPath libKit.a).
+        if (!OperatingSystem.IsMacOS())
+            return;
+        const string binary = "Kit.xcframework/ios-arm64/libKit.a";
+        var result = Merge([
+            Contribution("x26", ["net10.0-ios26.0"], extra: [($"native/net10.0-ios26.0/{binary}", StaticArchive("bare-older", ["int kit_a(void){return 1;}", "int kit_b(void){return 2;}"]))]),
+            Contribution("x27", ["net10.0-ios27.2"], extra: [($"native/net10.0-ios27.2/{binary}", StaticArchive("bare-newer", ["int kit_a(void){return 1;}"]))]),
+        ], "net10.0-ios26.0", "net10.0-ios27.2");
+        var problem = Assert.Single(result.Problems);
+        Assert.Contains($"{binary} (arm64) lacks 1 linkable symbol(s) of the older copy net10.0-ios26.0 (kit_b)", problem);
+    }
+
+    [Fact]
+    public void Merge_AStaticArchiveWithBitcodeMembers_ComparesItsMachOMembers_AndFindsTheRestInItsTableOfContents()
+    {
+        // A link-time-optimized member is LLVM bitcode, which has no Mach-O symbol table; the archive's
+        // table of contents still names what it defines, as the linker reads it.
+        if (!OperatingSystem.IsMacOS())
+            return;
+        const string binary = "Kit.xcframework/ios-arm64/Kit.framework/Kit";
+        const string lto = "//flto\nint kit_lto(void){return 9;}";
+        var older = StaticArchive("lto-older", ["int kit_a(void){return 1;}", "int kit_b(void){return 2;}", lto]);
+        // The same bitcode member, and an ordinary member that lost kit_b.
+        var lost = StaticArchive("lto-lost", ["int kit_a(void){return 1;}", lto]);
+        // kit_b moved into a bitcode member: the linker still finds it.
+        var moved = StaticArchive("lto-moved", ["int kit_a(void){return 1;}", "//flto\nint kit_lto(void){return 9;} int kit_b(void){return 2;}"]);
+
+        var refused = Merge([
+            Contribution("x26", ["net10.0-ios26.0"], extra: [($"native/net10.0-ios26.0/{binary}", older)]),
+            Contribution("x27", ["net10.0-ios27.2"], extra: [($"native/net10.0-ios27.2/{binary}", lost)]),
+        ], "net10.0-ios26.0", "net10.0-ios27.2");
+        var problem = Assert.Single(refused.Problems);
+        Assert.Contains("lacks 1 linkable symbol(s) of the older copy net10.0-ios26.0 (kit_b)", problem);
+
+        var accepted = Merge([
+            Contribution("x26", ["net10.0-ios26.0"], extra: [($"native/net10.0-ios26.0/{binary}", older)]),
+            Contribution("x27", ["net10.0-ios27.2"], extra: [($"native/net10.0-ios27.2/{binary}", moved)]),
+        ], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.True(accepted.Problems.IsEmpty, string.Join("\n", accepted.Problems));
+        Assert.Contains(accepted.Notes, n => n.Contains("the older copy's 1 member(s) that do not read as Mach-O objects are not required", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Merge_AStaticArchiveOfUnreadableMembersAndNoTableOfContents_IsNotComparedButMerges()
+    {
+        const string binary = "Kit.xcframework/ios-arm64/Kit.framework/Kit";
+        var bitcode = Ar(("kit.o", [0x42, 0x43, 0xC0, 0xDE, 0x35, 0x14, 0x00, 0x00, 0x05]));
+        var result = Merge([
+            Contribution("x26", ["net10.0-ios26.0"], extra: [($"native/net10.0-ios26.0/{binary}", bitcode)]),
+            Contribution("x27", ["net10.0-ios27.2"], extra: [($"native/net10.0-ios27.2/{binary}", bitcode)]),
+        ], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.True(result.Problems.IsEmpty, string.Join("\n", result.Problems));
+        Assert.Contains(result.Notes, n => n.Contains("1 member(s) that do not read as Mach-O objects and no table of contents, linkable symbols not compared", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Merge_AStaticArchiveThatDoesNotRead_IsRefused_NotThrown()
+    {
+        const string binary = "Kit.xcframework/ios-arm64/Kit.framework/Kit";
+        var malformed = Ar(("#1/-1", [1, 2, 3, 4]));
+        var result = Merge([
+            Contribution("x26", ["net10.0-ios26.0"], extra: [($"native/net10.0-ios26.0/{binary}", malformed)]),
+            Contribution("x27", ["net10.0-ios27.2"], extra: [($"native/net10.0-ios27.2/{binary}", malformed)]),
+        ], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.Contains(result.Problems, p => p.Contains($"{binary} does not read as a static archive", StringComparison.Ordinal));
+    }
+
+    /// <summary>An XCFramework <c>Info.plist</c> listing one slice.</summary>
+    private static byte[] SlicePlist(string id, string library, string platform, string? variant = null, params string[] architectures) => Encoding.UTF8.GetBytes(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><plist version=\"1.0\"><dict><key>AvailableLibraries</key><array><dict>"
+        + $"<key>LibraryIdentifier</key><string>{id}</string><key>LibraryPath</key><string>{library}</string>"
+        + "<key>SupportedArchitectures</key><array>" + string.Concat(architectures.Select(a => $"<string>{a}</string>")) + "</array>"
+        + $"<key>SupportedPlatform</key><string>{platform}</string>"
+        + (variant is null ? "" : $"<key>SupportedPlatformVariant</key><string>{variant}</string>")
+        + "</dict></array><key>CFBundlePackageType</key><string>XFWK</string></dict></plist>");
+
+    [Fact]
+    public void Merge_AnXCFrameworkSlice_IsComparedByTheLibraryItsInfoPlistLinks()
+    {
+        if (!OperatingSystem.IsMacOS())
+            return;
+        const string root = "Kit.xcframework";
+        var kit = Dylib("kit", "int kit_a(void){return 1;} int kit_b(void){return 2;}");
+        // The newer slice still holds Kit.framework, but its plist links Other.framework: a build links
+        // what Other exports, and the older copy's Kit exports are gone.
+        var moved = Merge([
+            Contribution("x26", ["net10.0-ios26.0"], extra: [($"native/net10.0-ios26.0/{root}/Info.plist", SlicePlist("ios-arm64", "Kit.framework", "ios", null, "arm64")),
+                ($"native/net10.0-ios26.0/{root}/ios-arm64/Kit.framework/Kit", kit)]),
+            Contribution("x27", ["net10.0-ios27.2"], extra: [($"native/net10.0-ios27.2/{root}/Info.plist", SlicePlist("ios-arm64", "Other.framework", "ios", null, "arm64")),
+                ($"native/net10.0-ios27.2/{root}/ios-arm64/Kit.framework/Kit", kit),
+                ($"native/net10.0-ios27.2/{root}/ios-arm64/Other.framework/Other", Dylib("other", "int other_a(void){return 1;}"))]),
+        ], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.Contains(moved.Problems, p => p.Contains($"{root}/ios-arm64/Kit.framework/Kit: the newer copy's Info.plist links Other.framework from its slice", StringComparison.Ordinal));
+
+        // A library beside the one the older plist links is not linked, so a newer copy may drop it.
+        var stray = Merge([
+            Contribution("x26", ["net10.0-ios26.0"], extra: [($"native/net10.0-ios26.0/{root}/Info.plist", SlicePlist("ios-arm64", "Kit.framework", "ios", null, "arm64")),
+                ($"native/net10.0-ios26.0/{root}/ios-arm64/Kit.framework/Kit", kit),
+                ($"native/net10.0-ios26.0/{root}/ios-arm64/Old.framework/Old", Dylib("old", "int old_a(void){return 1;}"))]),
+            Contribution("x27", ["net10.0-ios27.2"], extra: [($"native/net10.0-ios27.2/{root}/Info.plist", SlicePlist("ios-arm64", "Kit.framework", "ios", null, "arm64")),
+                ($"native/net10.0-ios27.2/{root}/ios-arm64/Kit.framework/Kit", kit)]),
+        ], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.True(stray.Problems.IsEmpty, string.Join("\n", stray.Problems));
+    }
+
+    [Fact]
+    public void Merge_ASliceWhoseLibraryPathIsNested_IsCompared()
+    {
+        if (!OperatingSystem.IsMacOS())
+            return;
+        const string root = "Kit.xcframework";
+        (string, byte[])[] Copy(string tfm, byte[] image) =>
+            [($"native/{tfm}/{root}/Info.plist", SlicePlist("ios-arm64", "Libraries/Kit.framework", "ios", null, "arm64")),
+             ($"native/{tfm}/{root}/ios-arm64/Libraries/Kit.framework/Kit", image)];
+        var result = Merge([
+            Contribution("x26", ["net10.0-ios26.0"], extra: Copy("net10.0-ios26.0", Dylib("nested-older", "int kit_a(void){return 1;} int kit_b(void){return 2;}"))),
+            Contribution("x27", ["net10.0-ios27.2"], extra: Copy("net10.0-ios27.2", Dylib("nested-newer", "int kit_a(void){return 1;}"))),
+        ], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.Contains("kit_b", Assert.Single(result.Problems));
+    }
+
+    [Fact]
+    public void Merge_ASliceWhoseInfoPlistDropsAnArchitecture_IsRefused_ThoughItsBinaryKeepsIt()
+    {
+        // A build for x86_64 chooses its slice by the plist's SupportedArchitectures.
+        if (!OperatingSystem.IsMacOS())
+            return;
+        const string root = "Kit.xcframework";
+        const string id = "ios-arm64_x86_64-simulator";
+        var universal = Dylib("universal", "int kit_a(void){return 1;}", "arm64", "x86_64");
+        (string, byte[])[] Copy(string tfm, params string[] architectures) =>
+            [($"native/{tfm}/{root}/Info.plist", SlicePlist(id, "Kit.framework", "ios", "simulator", architectures)), ($"native/{tfm}/{root}/{id}/Kit.framework/Kit", universal)];
+        var refused = Merge([
+            Contribution("x26", ["net10.0-ios26.0"], extra: Copy("net10.0-ios26.0", "arm64", "x86_64")),
+            Contribution("x27", ["net10.0-ios27.2"], extra: Copy("net10.0-ios27.2", "arm64")),
+        ], "net10.0-ios26.0", "net10.0-ios27.2");
+        var problem = Assert.Single(refused.Problems);
+        Assert.Contains("the newer copy's Info.plist does not declare x86_64 for its slice", problem);
+        var kept = Merge([
+            Contribution("x26", ["net10.0-ios26.0"], extra: Copy("net10.0-ios26.0", "arm64", "x86_64")),
+            Contribution("x27", ["net10.0-ios27.2"], extra: Copy("net10.0-ios27.2", "arm64", "x86_64")),
+        ], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.True(kept.Problems.IsEmpty, string.Join("\n", kept.Problems));
+    }
+
+    [Fact]
+    public void Merge_ASymbolThatMovesIntoBitcode_AndIsLostInALaterCopy_IsRefused()
+    {
+        // Each copy against the previous passes (the middle one's table of contents still names
+        // kit_b); the newest must still define what the oldest copy's Mach-O members did.
+        if (!OperatingSystem.IsMacOS())
+            return;
+        const string binary = "Kit.xcframework/ios-arm64/Kit.framework/Kit";
+        var older = StaticArchive("three-older", ["int kit_a(void){return 1;}", "int kit_b(void){return 2;}"]);
+        var moved = StaticArchive("three-moved", ["int kit_a(void){return 1;}", "//flto\nint kit_b(void){return 2;}"]);
+        var lost = StaticArchive("three-lost", ["int kit_a(void){return 1;}", "//flto\nint kit_c(void){return 3;}"]);
+        var result = Merge([
+            Contribution("x26", ["net10.0-ios26.0"], extra: [($"native/net10.0-ios26.0/{binary}", older)]),
+            Contribution("x27", ["net10.0-ios27.2"], extra: [($"native/net10.0-ios27.2/{binary}", moved)]),
+            Contribution("n11", ["net11.0-ios27.0"], extra: [($"native/net11.0-ios27.0/{binary}", lost)]),
+        ], "net10.0-ios26.0", "net10.0-ios27.2", "net11.0-ios27.0");
+        var problem = Assert.Single(result.Problems);
+        Assert.Contains("net11.0-ios27.0", problem);
+        Assert.Contains("lacks 1 linkable symbol(s) of the older copy net10.0-ios26.0 (kit_b)", problem);
+    }
+
+    [Fact]
+    public void Merge_AThinArchiveRebuiltAsBitcodeAlone_IsComparedByItsTableOfContents()
+    {
+        // No member of an archive built entirely with -flto reads as Mach-O, so it names no
+        // architecture; its table of contents still says what it defines.
+        if (!OperatingSystem.IsMacOS())
+            return;
+        const string binary = "Kit.xcframework/ios-arm64/Kit.framework/Kit";
+        var older = StaticArchive("thin-older", ["int kit_a(void){return 1;}", "int kit_b(void){return 2;}"]);
+        var kept = StaticArchive("thin-kept", ["//flto\nint kit_a(void){return 1;}", "//flto\nint kit_b(void){return 2;}"]);
+        var lost = StaticArchive("thin-lost", ["//flto\nint kit_a(void){return 1;}"]);
+        var accepted = Merge([
+            Contribution("x26", ["net10.0-ios26.0"], extra: [($"native/net10.0-ios26.0/{binary}", older)]),
+            Contribution("x27", ["net10.0-ios27.2"], extra: [($"native/net10.0-ios27.2/{binary}", kept)]),
+        ], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.True(accepted.Problems.IsEmpty, string.Join("\n", accepted.Problems));
+        var refused = Merge([
+            Contribution("x26", ["net10.0-ios26.0"], extra: [($"native/net10.0-ios26.0/{binary}", older)]),
+            Contribution("x27", ["net10.0-ios27.2"], extra: [($"native/net10.0-ios27.2/{binary}", lost)]),
+        ], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.Contains("lacks 1 linkable symbol(s) of the older copy net10.0-ios26.0 (kit_b)", Assert.Single(refused.Problems));
+
+        // A bitcode-only archive requires no symbol, whatever architectures the newer archive has.
+        var grown = Merge([
+            Contribution("x26", ["net10.0-ios26.0"], extra: [($"native/net10.0-ios26.0/{binary}", kept)]),
+            Contribution("x27", ["net10.0-ios27.2"], extra: [($"native/net10.0-ios27.2/{binary}", StaticArchive("thin-grown", ["int kit_a(void){return 1;} int kit_b(void){return 2;}"], "arm64", "x86_64"))]),
+        ], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.True(grown.Problems.IsEmpty, string.Join("\n", grown.Problems));
+    }
+
+    [Fact]
+    public void Merge_AFatArchiveWhoseSliceLiesPastItsEnd_IsRefused_NotThrown()
+    {
+        const string binary = "Kit.xcframework/ios-arm64/Kit.framework/Kit";
+        // A 64-bit fat header of two slices: the first an empty archive, the second at long.MaxValue.
+        var fat = new byte[8 + 2 * 32 + 8];
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(fat, 0xCAFEBABF);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(fat.AsSpan(4), 2);
+        void Slice(int i, uint cpu, ulong offset, ulong size)
+        {
+            var entry = fat.AsSpan(8 + i * 32);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(entry, cpu);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt64BigEndian(entry[8..], offset);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt64BigEndian(entry[16..], size);
+        }
+        Slice(0, 0x0100000C, 72, 8);
+        Slice(1, 0x01000007, long.MaxValue, 8);
+        "!<arch>\n"u8.CopyTo(fat.AsSpan(72));
+        var result = Merge([
+            Contribution("x26", ["net10.0-ios26.0"], extra: [($"native/net10.0-ios26.0/{binary}", fat)]),
+            Contribution("x27", ["net10.0-ios27.2"], extra: [($"native/net10.0-ios27.2/{binary}", fat)]),
+        ], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.Contains(result.Problems, p => p.Contains($"{binary} does not read as a static archive", StringComparison.Ordinal));
+    }
+
+    [Theory]
     [InlineData("runtimes/ios-arm64/native/Kit.xcframework/Info.plist")]
     [InlineData("native/Kit.xcframework")]
     [InlineData("buildTransitive/Acme.Kit.targets")]
@@ -1445,6 +1801,10 @@ public sealed class PackageCopyTests : IDisposable
         "Kit::F`0(Object):Object parameter 1", "1m", "2m")]
     // A decimal zero whose sign changes: the text of both is 0.0, the bits differ.
     [InlineData("public static class Kit { public const decimal Z = 0.0m; }", "public static class Kit { public const decimal Z = -0.0m; }", "Kit::Z", "0.0m", "-0.0m")]
+    // A boxed default of an object parameter is a value of its own type: Int32 1 and Int64 1 are different objects.
+    [InlineData("public static class Kit { public static object F([System.Runtime.InteropServices.Optional, System.Runtime.InteropServices.DefaultParameterValue(1)] object o) => o; }",
+        "public static class Kit { public static object F([System.Runtime.InteropServices.Optional, System.Runtime.InteropServices.DefaultParameterValue(1L)] object o) => o; }",
+        "Kit::F`0(Object):Object parameter 1", "1 (Int32)", "1 (Int64)")]
     // A DateTime field constant out of DateTime's range is still a value, not a failed merge.
     [InlineData("public static class Kit { [System.Runtime.CompilerServices.DateTimeConstant(-1)] public static readonly System.DateTime D; }",
         "public static class Kit { [System.Runtime.CompilerServices.DateTimeConstant(-2)] public static readonly System.DateTime D; }",
@@ -1460,6 +1820,106 @@ public sealed class PackageCopyTests : IDisposable
         Assert.Null(result.Package);
         var problem = Assert.Single(result.Problems, p => p.Contains("compiled-in value", StringComparison.Ordinal));
         Assert.Contains($"{member} is {before} in net10.0-ios26.0 and {after} in net10.0-ios27.2", problem);
+    }
+
+    [Theory]
+    // A class sealed: a library's class deriving from it no longer loads.
+    [InlineData("public class Kit { public int A() => 1; }", "public sealed class Kit { public int A() => 1; }", "Kit can no longer be derived from")]
+    // A virtual method made non-virtual, or a override sealed: a library's override no longer loads.
+    [InlineData("public class Kit { public virtual int A() => 1; }", "public class Kit { public int A() => 1; }", "A`0():Int32 of .Kit can no longer be overridden")]
+    [InlineData("public class Base { public virtual int A() => 1; } public class Kit : Base { public override int A() => 2; }",
+        "public class Base { public virtual int A() => 1; } public class Kit : Base { public sealed override int A() => 2; }", "A`0():Int32 of .Kit can no longer be overridden")]
+    [InlineData("public class Kit { protected virtual int A() => 1; }", "public class Kit { protected int A() => 1; }", "A`0():Int32 of .Kit can no longer be overridden")]
+    // One a class a library may derive from inherits from a base no library may derive from.
+    [InlineData("public class Base { internal Base() { } public virtual int A() => 1; } public class Kit : Base { }",
+        "public class Base { internal Base() { } public int A() => 1; } public class Kit : Base { }", "A`0():Int32 of .Kit can no longer be overridden")]
+    // A new virtual method that hides it: a library's override binds to the new slot, and a call through Base no longer reaches it.
+    [InlineData("public class Base { internal Base() { } public virtual int A() => 1; } public class Kit : Base { }",
+        "public class Base { internal Base() { } public int A() => 1; } public class Kit : Base { public new virtual int A() => 2; }", ".Base::A`0():Int32 of .Kit can no longer be overridden")]
+    // A class made abstract: a library's `new Kit()` no longer runs.
+    [InlineData("public class Kit { public int A() => 1; }", "public abstract class Kit { public int A() => 1; }", "Kit can no longer be constructed")]
+    // An abstract method added to a class a library may derive from: the library's class does not implement it.
+    [InlineData("public abstract class Kit { public int A() => 1; }", "public abstract class Kit { public int A() => 1; public abstract int B(); }", "leaves .Kit with the abstract method B`0():Int32 to implement")]
+    [InlineData("public abstract class Kit { protected Kit() { } }", "public abstract class Kit { protected Kit() { } protected abstract void B(); }", "leaves .Kit with the abstract method B`0():Void to implement")]
+    // One no library can implement is no less an obligation.
+    [InlineData("public abstract class Kit { }", "public abstract class Kit { private protected abstract void B(); }", "leaves .Kit with the abstract method B`0():Void to implement")]
+    [InlineData("public abstract class Kit { }", "public abstract class Kit { internal abstract void B(); }", "leaves .Kit with the abstract method B`0():Void to implement")]
+    // One added to a base no library may derive from, which a class it may derive from inherits.
+    [InlineData("public abstract class Base { internal Base() { } } public abstract class Kit : Base { protected Kit() { } }",
+        "public abstract class Base { internal Base() { } public abstract int B(); } public abstract class Kit : Base { protected Kit() { } }", "leaves .Kit with the abstract method B`0():Int32 to implement")]
+    [InlineData("public abstract class Base<T> { internal Base() { } } public abstract class Kit : Base<int> { protected Kit() { } }",
+        "public abstract class Base<T> { internal Base() { } public abstract T B(); } public abstract class Kit : Base<int> { protected Kit() { } }", "leaves .Kit with the abstract method B`0():Int32 to implement")]
+    // A constraint added to a generic method or type: a call or instantiation the older copy allowed no longer loads.
+    [InlineData("public static class Kit { public static int A<T>(T t) => 1; }", "public static class Kit { public static int A<T>(T t) where T : class => 1; }",
+        "adds the constraint method M static .Kit::A`1(!!0):Int32 parameter 0 ReferenceTypeConstraint")]
+    [InlineData("public static class Kit { public static int A<T>(T t) => 1; }", "public static class Kit { public static int A<T>(T t) where T : new() => 1; }",
+        "adds the constraint method M static .Kit::A`1(!!0):Int32 parameter 0 DefaultConstructorConstraint")]
+    [InlineData("public class Box<T> { }", "public class Box<T> where T : System.IDisposable { }", "adds the constraint type .Box`1 parameter 0 : ")]
+    [InlineData("public class Box<T> where T : System.IDisposable { }", "public class Box<T> where T : System.IDisposable, System.IComparable { }", "adds the constraint type .Box`1 parameter 0 : ")]
+    public void Merge_ANewerCopyThatNarrowsWhatALibraryMayDeriveOverrideOrPass_IsRefused(string olderApi, string newerApi, string narrowed)
+    {
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: olderApi);
+        var newer = Contribution("x27", ["net10.0-ios27.2"], api: newerApi);
+        var result = Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.Null(result.Package);
+        var problem = Assert.Single(result.Problems, p => p.Contains("inheritance or constraint contract", StringComparison.Ordinal));
+        Assert.Contains(narrowed, problem);
+    }
+
+    [Theory]
+    // The reverse of each: unsealing, a method made virtual, a class made concrete, a constraint dropped.
+    [InlineData("public sealed class Kit { public int A() => 1; }", "public class Kit { public virtual int A() => 1; }")]
+    [InlineData("public abstract class Kit { public abstract int A(); }", "public class Kit { public virtual int A() => 1; }")]
+    [InlineData("public static class Kit { public static int A<T>(T t) where T : class => 1; }", "public static class Kit { public static int A<T>(T t) => 1; }")]
+    [InlineData("public class Box<T> where T : System.IDisposable, System.IComparable { }", "public class Box<T> where T : System.IDisposable { }")]
+    // A constraint loosened to a type the older constraint converts to.
+    [InlineData("public interface IParent { } public interface IChild : IParent { } public class Box<T> where T : IChild { }",
+        "public interface IParent { } public interface IChild : IParent { } public class Box<T> where T : IParent { }")]
+    [InlineData("public class Animal { } public class Dog : Animal { } public static class Kit { public static int A<T>(T t) where T : Dog => 1; }",
+        "public class Animal { } public class Dog : Animal { } public static class Kit { public static int A<T>(T t) where T : Animal => 1; }")]
+    [InlineData("public interface IParent<T> { } public interface IChild<T> : IParent<T> { } public class Box<T> where T : IChild<int> { }",
+        "public interface IParent<T> { } public interface IChild<T> : IParent<T> { } public class Box<T> where T : IParent<int> { }")]
+    [InlineData("public interface IParent<T, U> { } public interface IChild<T, U> : IParent<T, U> { } public class Box<T> where T : IChild<int[,], long> { }",
+        "public interface IParent<T, U> { } public interface IChild<T, U> : IParent<T, U> { } public class Box<T> where T : IParent<int[,], long> { }")]
+    // An override added below the base that introduces the slot keeps it overridable.
+    [InlineData("public class Base { internal Base() { } public virtual int A() => 1; } public class Kit : Base { }",
+        "public class Base { internal Base() { } public virtual int A() => 1; } public class Kit : Base { public override int A() => 2; }")]
+    // A constrained generic member or type the older copy does not have: no library calls it.
+    [InlineData("public static class Kit { public static int A() => 1; }", "public static class Kit { public static int A() => 1; public static int B<T>(T t) where T : class => 1; }")]
+    [InlineData("public static class Kit { public static int A() => 1; }", "public static class Kit { public static int A() => 1; } public class Box<T> where T : System.IDisposable { }")]
+    // An abstract method added to a base that the class a library derives from implements.
+    [InlineData("public abstract class Base { internal Base() { } } public abstract class Kit : Base { protected Kit() { } }",
+        "public abstract class Base { internal Base() { } public abstract int B(); } public abstract class Kit : Base { protected Kit() { } public override int B() => 1; }")]
+    [InlineData("public abstract class Base<T> { internal Base() { } } public abstract class Kit : Base<int> { protected Kit() { } }",
+        "public abstract class Base<T> { internal Base() { } public abstract T B(); } public abstract class Kit : Base<int> { protected Kit() { } public override int B() => 1; }")]
+    [InlineData("public abstract class Base { internal Base() { } } public abstract class Kit : Base { protected Kit() { } }",
+        "public abstract class Base { internal Base() { } public abstract Base B(); } public abstract class Kit : Base { protected Kit() { } public override Kit B() => this; }")]
+    [InlineData("public abstract class Base<T> { internal Base() { } } public abstract class Kit : Base<int> { protected Kit() { } }",
+        "public abstract class Base<T> { internal Base() { } public abstract object B(T t); } public abstract class Kit : Base<int> { protected Kit() { } public override string B(int t) => \"\"; }")]
+    // A class no library can derive from (no constructor it can call) may gain an abstract method or seal its methods.
+    [InlineData("public abstract class Kit { internal Kit() { } public virtual int A() => 1; }", "public abstract class Kit { internal Kit() { } public int A() => 1; public abstract int B(); }")]
+    // A static class, a struct and an interface's own members are not derivation contracts.
+    [InlineData("public static class Kit { public static int A() => 1; }", "public static class Kit { public static int A() => 1; }")]
+    [InlineData("public struct Kit { public int A() => 1; }", "public struct Kit { public int A() => 1; public override string ToString() => \"\"; }")]
+    // A protected member made public is still reachable from every subclass.
+    [InlineData("public class Kit { protected virtual int A() => 1; }", "public class Kit { public virtual int A() => 1; }")]
+    public void Merge_ANewerCopyThatKeepsOrWidensWhatALibraryMayDeriveOverrideOrPass_IsAccepted(string olderApi, string newerApi)
+    {
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: olderApi);
+        var newer = Contribution("x27", ["net10.0-ios27.2"], api: newerApi);
+        var result = Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.True(result.Problems.IsEmpty, string.Join("\n", result.Problems));
+    }
+
+    [Fact]
+    public void Merge_ANewerCopyThatNarrowsAMembersAccess_IsRefused()
+    {
+        // A public member made protected (or internal) is gone for a library that calls it from outside a subclass.
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: "public class Kit { public int A() => 1; }");
+        var newer = Contribution("x27", ["net10.0-ios27.2"], api: "public class Kit { protected int A() => 1; }");
+        var problem = Assert.Single(Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2").Problems);
+        Assert.Contains("lacks 1 public API member(s)", problem);
+        Assert.Contains("public M instance .Kit::A`0():Int32", problem);
     }
 
     [Theory]
@@ -1661,22 +2121,69 @@ public sealed class PackageCopyTests : IDisposable
         return buffer.ToArray();
     }
 
-    /// <summary>An arm64 dylib exporting the C functions of <paramref name="source"/>.</summary>
-    private byte[] Dylib(string name, string source)
+    /// <summary>A dylib exporting the C functions of <paramref name="source"/>, for <paramref name="architectures"/> (arm64 when none).</summary>
+    private byte[] Dylib(string name, string source, params string[] architectures)
     {
         var c = Path.Combine(tempDir, name + ".c");
         var output = Path.Combine(tempDir, name + ".dylib");
         File.WriteAllText(c, source);
-        var start = new ProcessStartInfo("xcrun", ["clang", "-arch", "arm64", "-dynamiclib", c, "-o", output])
+        Xcrun(["clang", .. Arches(architectures), "-dynamiclib", c, "-o", output]);
+        return File.ReadAllBytes(output);
+    }
+
+    /// <summary>
+    /// A static archive as <c>libtool -static</c> writes one, of one object per entry of
+    /// <paramref name="members"/> (each compiled for <paramref name="architectures"/>, arm64 when none):
+    /// fat when there is more than one architecture.
+    /// </summary>
+    private byte[] StaticArchive(string name, string[] members, params string[] architectures)
+    {
+        var objects = new List<string>();
+        for (var i = 0; i < members.Length; i++)
+        {
+            // A long member name, which the archive stores in the BSD #1/<length> form.
+            var c = Path.Combine(tempDir, $"{name}_member_with_a_long_object_name_{i}.c");
+            File.WriteAllText(c, members[i]);
+            var o = Path.ChangeExtension(c, ".o");
+            // A member whose source starts //flto is compiled to LLVM bitcode.
+            Xcrun(["clang", .. Arches(architectures), .. members[i].StartsWith("//flto", StringComparison.Ordinal) ? ["-flto"] : Array.Empty<string>(), "-c", c, "-o", o]);
+            objects.Add(o);
+        }
+        var output = Path.Combine(tempDir, $"lib{name}.a");
+        Xcrun(["libtool", "-static", "-o", output, .. objects]);
+        return File.ReadAllBytes(output);
+    }
+
+    private static string[] Arches(string[] architectures) =>
+        (architectures.Length == 0 ? ["arm64"] : architectures).SelectMany(a => new[] { "-arch", a }).ToArray();
+
+    private static void Xcrun(string[] arguments)
+    {
+        var start = new ProcessStartInfo("xcrun", arguments)
         {
             RedirectStandardError = true,
             RedirectStandardOutput = true,
         };
         using var process = Process.Start(start)!;
         var error = process.StandardError.ReadToEnd();
+        process.StandardOutput.ReadToEnd();
         process.WaitForExit();
         Assert.True(process.ExitCode == 0, error);
-        return File.ReadAllBytes(output);
+    }
+
+    /// <summary>A thin <c>ar</c> archive of <paramref name="members"/>, written by hand (short names, even padding).</summary>
+    private static byte[] Ar(params (string Name, byte[] Data)[] members)
+    {
+        var buffer = new MemoryStream();
+        buffer.Write("!<arch>\n"u8);
+        foreach (var (name, data) in members)
+        {
+            buffer.Write(Encoding.ASCII.GetBytes($"{name,-16}{0,-12}{0,-6}{0,-6}{644,-8}{data.Length,-10}`\n"));
+            buffer.Write(data);
+            if (data.Length % 2 == 1)
+                buffer.WriteByte((byte)'\n');
+        }
+        return buffer.ToArray();
     }
 
     /// <summary>The Mac Catalyst slice of <c>Kit.xcframework</c> that <see cref="VersionedFrameworkZip"/> lays out.</summary>

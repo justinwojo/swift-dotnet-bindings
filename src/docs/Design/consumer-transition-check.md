@@ -88,6 +88,33 @@ There is no global switch. One item per package downgrades that package's error 
 The key is the NuGet package id; for a project or plain reference it is the assembly name. Matching
 ignores case. A suppression that matches nothing is logged.
 
+## The runtime contract check (SWIFTBIND144)
+
+A generated binding's module initializer passes the runtime contract epoch it was generated against
+to `RuntimeContract.AssertCompatible`, which throws `SwiftRuntimeContractMismatchException` when the
+loaded runtime's window (`MinimumSupportedGeneratedVersion` to its own epoch) does not hold it. NuGet
+keeps a binding package and its runtime within one minor, but a direct reference to a newer runtime,
+a plain `Reference` to a binding assembly or a `ProjectReference` diamond bypasses that range, and
+the app then builds and fails when it loads the binding.
+
+The same buildTransitive targets run `SwiftRuntimeContractCheck` before `CoreCompile` in every
+build that resolves references: apps and libraries, on every engine (NativeAOT and macOS included,
+since the load gate runs on all of them), not in design-time builds. It reads the window from the
+`Swift.Runtime.dll` the build resolves (the copy-local implementation first) and each binding's
+epoch from its module initializer's IL, and applies the load gate's rule: epoch 0 (a development
+build) on either side is accepted. A generated binding (its initializer type is
+`__SwiftFrameworkResolver_<Module>` or the Apple supplement's `Swift.AppleSupplementRegistration`)
+that records no epoch was generated before the handshake and is refused too: the 11.0 floor rejects
+every 0.x binding. A library that only uses the runtime is not judged, nor is a build whose runtime
+records no window (a reference assembly). There is no opt-out.
+
+```
+error SWIFTBIND144: Kit.dll (package Acme.Kit 0.20.2) cannot load on this build's SwiftBindings.Runtime:
+it was generated against runtime contract epoch 20 (0.20) and it predates this runtime's dispatch
+contract: the SwiftBindings.Runtime this build resolves (11.0.0) loads bindings generated against
+contract epochs 11000 (11.0) to 11000 (11.0). ...
+```
+
 ## The producer side
 
 `SwiftBindings.Sdk` runs the same engine after `Pack` (`_SwiftBindingsCheckPackedTransitions`,

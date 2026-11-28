@@ -160,6 +160,7 @@
     <Compile Include="../../../Swift.Runtime/tasks/PackageCopyCheck.cs" Link="Packaging/PackageCopyCheck.cs" />
     <Compile Include="../../../Swift.Runtime/tasks/PackageCopyRules.cs" Link="Packaging/PackageCopyRules.cs" />
     <Compile Include="../../../Swift.Runtime/tasks/PackageMerge.cs" Link="Packaging/PackageMerge.cs" />
+    <Compile Include="../../../Swift.Runtime/tasks/XCFrameworkSlices.cs" Link="Packaging/XCFrameworkSlices.cs" />
     <!-- The qualifier's import table, which the merge reads from its own assembly as the tasks assembly carries it. -->
     <EmbeddedResource Include="../../src/Data/imported-type-names.json" Link="Packaging/imported-type-names.json"
                       LogicalName="SwiftBindings.Tasks.imported-type-names.json" />

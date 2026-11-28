@@ -220,6 +220,119 @@ public sealed class TransitionCheckTasksTests : IDisposable
         Assert.Contains("1 inspected, 0 from the cache", third);
     }
 
+    // ---- the runtime contract check (SWIFTBIND144) ---------------------------------------------
+
+    /// <summary>A stand-in <c>Swift.Runtime</c> recording the contract window of <paramref name="version"/>, as the real one does.</summary>
+    private static byte[] ContractRuntime(string version, int floor = 11000) => SwiftTransitionScannerTests.Compile($$"""
+        namespace Swift.Runtime
+        {
+            public static class RuntimeContract
+            {
+                internal const string BuildVersion = "{{version}}";
+                public const int MinimumSupportedGeneratedVersion = {{floor}};
+                public static void AssertCompatible(int generatedAgainstVersion) { }
+            }
+            public static class SwiftFrameworkResolver { public static void RegisterForAssembly(System.Reflection.Assembly assembly) { } }
+        }
+        """, "Swift.Runtime");
+
+    /// <summary>A binding whose module initializer is the generator's, passing <paramref name="epoch"/> (none: from before the handshake).</summary>
+    private static byte[] GeneratedBinding(byte[] runtime, int? epoch, string type = "__SwiftFrameworkResolver_Kit") => SwiftTransitionScannerTests.Compile($$"""
+        namespace Kit
+        {
+            internal static class {{type}}
+            {
+                [global::System.Runtime.CompilerServices.ModuleInitializer]
+                internal static void Initialize()
+                {
+                    {{(epoch is { } e ? $"global::Swift.Runtime.RuntimeContract.AssertCompatible({e});" : "")}}
+                    global::Swift.Runtime.SwiftFrameworkResolver.RegisterForAssembly(typeof({{type}}).Assembly);
+                }
+            }
+            public static class Api { public static int One() => 1; }
+        }
+        """, "Kit", [runtime]);
+
+    [Theory]
+    // A 0.x binding on the 11.0 runtime: its initializer would throw at load, on every engine.
+    [InlineData("11.0.0", 20, "net10.0-ios", "predates this runtime's dispatch contract")]
+    [InlineData("11.0.0", 20, "net10.0-macos", "predates this runtime's dispatch contract")]
+    [InlineData("11.0.0", 20, "net11.0-ios", "predates this runtime's dispatch contract")]
+    // A binding from a newer runtime's SDK.
+    [InlineData("11.0.0", 11001, "net10.0-ios", "generated against a newer runtime than this one")]
+    // A binding generated before the handshake carries no epoch, and no runtime of the window loads it whole.
+    [InlineData("11.0.0", null, "net10.0-maccatalyst", "records no runtime contract epoch")]
+    public void RuntimeContract_ABindingTheRuntimeWillNotLoad_IsRefused(string runtimeVersion, int? epoch, string tfm, string why)
+    {
+        var runtime = ContractRuntime(runtimeVersion);
+        var runtimePath = Path.Combine(tempDir, "runtime", "Swift.Runtime.dll");
+        Directory.CreateDirectory(Path.GetDirectoryName(runtimePath)!);
+        File.WriteAllBytes(runtimePath, runtime);
+        var bindingPath = Path.Combine(tempDir, "binding", "Kit.dll");
+        Directory.CreateDirectory(Path.GetDirectoryName(bindingPath)!);
+        File.WriteAllBytes(bindingPath, GeneratedBinding(runtime, epoch));
+        var references = References(compile: bindingPath, package: "Acme.Kit", version: "0.20.2")
+                         + References(compile: runtimePath, package: "SwiftBindings.Runtime", version: runtimeVersion);
+        // The transition check is off: this is the contract check alone, which runs whatever the engine.
+        var (exit, output) = Build(tfm, "Release", references, extra: "<_UseNativeAot>true</_UseNativeAot>");
+        Assert.NotEqual(0, exit);
+        Assert.Contains("error SWIFTBIND144", output);
+        Assert.Contains("Kit.dll (package Acme.Kit 0.20.2) cannot load on this build's SwiftBindings.Runtime", output);
+        Assert.Contains(why, output);
+        Assert.Contains("SwiftBindings.Runtime this build resolves (11.0.0) loads bindings generated against contract epochs 11000 (11.0) to 11000 (11.0)", output);
+        Assert.Contains("built with SwiftBindings.Sdk 11.0", output);
+        Assert.DoesNotContain("SWIFTBIND132", output);
+    }
+
+    [Theory]
+    [InlineData("11.0.0", 11000, "__SwiftFrameworkResolver_Kit")]
+    [InlineData("11.3.1", 11000, "__SwiftFrameworkResolver_Kit")]
+    // A development runtime or binding (epoch 0) loads with anything, as the load gate has it.
+    [InlineData("0.0.0-dev", 20, "__SwiftFrameworkResolver_Kit")]
+    [InlineData("11.0.0", 0, "__SwiftFrameworkResolver_Kit")]
+    [InlineData("0.0.0-dev", null, "__SwiftFrameworkResolver_Kit")]
+    // A library that uses the runtime but is no generated binding is not held to an epoch.
+    [InlineData("11.0.0", null, "Startup")]
+    public void RuntimeContract_ABindingTheRuntimeLoads_OrAnotherLibrary_IsAccepted(string runtimeVersion, int? epoch, string type)
+    {
+        var runtime = ContractRuntime(runtimeVersion);
+        var runtimePath = Path.Combine(tempDir, "runtime", "Swift.Runtime.dll");
+        Directory.CreateDirectory(Path.GetDirectoryName(runtimePath)!);
+        File.WriteAllBytes(runtimePath, runtime);
+        var bindingPath = Path.Combine(tempDir, "binding", "Kit.dll");
+        Directory.CreateDirectory(Path.GetDirectoryName(bindingPath)!);
+        File.WriteAllBytes(bindingPath, GeneratedBinding(runtime, epoch, type));
+        var references = References(compile: bindingPath, package: "Acme.Kit")
+                         + References(compile: runtimePath, package: "SwiftBindings.Runtime", version: runtimeVersion);
+        var (exit, output) = Build("net10.0-macos", "Debug", references);
+        Assert.True(exit == 0, output);
+        Assert.DoesNotContain("SWIFTBIND144", output);
+    }
+
+    [Fact]
+    public void RuntimeContract_TheRealRuntimesWindow_Reads()
+    {
+        // The real runtime's constants, read as the check reads them: a rename would leave every
+        // binding unjudged rather than fail, so the names are pinned here.
+        var window = RuntimeContractCheck.ReadWindow(File.ReadAllBytes(RuntimeDll));
+        Assert.NotNull(window);
+        var source = File.ReadAllText(Path.Combine(SwiftCallPlanTests.RepoRoot, "src/Swift.Runtime/src/Swift/Runtime/RuntimeContract.cs"));
+        var floor = System.Text.RegularExpressions.Regex.Match(source, @"const int MinimumSupportedGeneratedVersion = (\d+);");
+        Assert.True(floor.Success);
+        Assert.Equal(int.Parse(floor.Groups[1].Value), window!.MinimumSupported);
+        Assert.Equal(RuntimeContractCheck.Epoch(window.PackageVersion), window.Version);
+    }
+
+    [Theory]
+    [InlineData("11.0.0", 11000)]
+    [InlineData("11.12.3-preview.1", 11012)]
+    [InlineData("0.20.2", 20)]
+    [InlineData("0.0.0-dev", 0)]
+    [InlineData("11.0-preview", 0)]
+    [InlineData("11", 0)]
+    public void RuntimeContract_Epoch_IsTheRuntimesOwnParse(string version, int epoch) =>
+        Assert.Equal(epoch, RuntimeContractCheck.Epoch(version));
+
     // ---- the pack check -------------------------------------------------------------------------
 
     [Fact]
@@ -546,6 +659,67 @@ public sealed class TransitionCheckTasksTests : IDisposable
         Assert.Contains("is not the one this assembly was generated with", output);
         Assert.DoesNotContain("lib/net10.0-ios26.0/Kit.dll would be refused", output);
         Assert.False(File.Exists(swapped));
+    }
+
+    [Theory]
+    // Where SwiftBindings.Sdk packs the wrapper, which the copy's targets reference.
+    [InlineData("native/net10.0-ios26.0/Kit.xcframework/ios-arm64/Kit.framework/Kit", false, true)]
+    [InlineData("native/net10.0-ios26.0/Kit.xcframework/ios-arm64/Kit.framework/Kit", true, true)]
+    // No wrapper at all: a binding whose wrapper did not compile packs without one (SWIFTBIND051).
+    [InlineData(null, false, true)]
+    // Moved inside the copy's native/<tfm>/, where no NativeReference reaches: an app never embeds it.
+    [InlineData("native/net10.0-ios26.0/frameworks/Kit.xcframework/ios-arm64/Kit.framework/Kit", false, false)]
+    [InlineData("native/net10.0-ios26.0/libKit.dylib", false, false)]
+    // In the referenced XCFramework, but in a slice its Info.plist does not list: a build never chooses it.
+    [InlineData("native/net10.0-ios26.0/Kit.xcframework/ios-arm64-stray/Kit.framework/Kit", true, false)]
+    // In a listed slice, but beside the library its Info.plist entry names: a build never links it.
+    [InlineData("native/net10.0-ios26.0/Kit.xcframework/ios-arm64/Kit.framework/Kit", true, false, "Other.framework")]
+    public void Pack_ACopysWrapper_MustBeWhereItsConsumerTargetsReferenceIt(string? wrapperPath, bool plist, bool accepted, string library = "Kit.framework")
+    {
+        var identity = WrapperIdentityTests.Identity("net10.0-ios26.0", "26.2");
+        var scratch = Directory.CreateDirectory(Path.Combine(tempDir, "natives")).FullName;
+        const string reference = "$(MSBuildThisFileDirectory)../../native/net10.0-ios26.0/Kit.xcframework";
+        (string, byte[])[] entries =
+        [
+            ("lib/net10.0-ios26.0/Kit.dll", WrapperIdentityTests.StampedAssembly(identity)),
+            ("buildTransitive/net10.0-ios26.0/Acme.Kit.props",
+                Encoding.UTF8.GetBytes(PackageCopyDeclarationEmitter.Compose("Acme.Kit", "net10.0-ios26.0", ".NET 10 + Xcode 26.3", "26.2", "0.21.0"))),
+            ("buildTransitive/net10.0-ios26.0/Acme.Kit.targets", Encoding.UTF8.GetBytes(
+                $"<Project><ItemGroup><NativeReference Include=\"{reference}\" Condition=\"Exists('{reference}')\"><Kind>Framework</Kind></NativeReference></ItemGroup></Project>")),
+            .. wrapperPath is null ? Array.Empty<(string, byte[])>() : [(wrapperPath, WrapperIdentityTests.StampedDylib(scratch, "wrapper", identity))],
+            .. plist ? [("native/net10.0-ios26.0/Kit.xcframework/Info.plist", Encoding.UTF8.GetBytes(
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?><plist version=\"1.0\"><dict><key>AvailableLibraries</key><array><dict>"
+                + $"<key>LibraryIdentifier</key><string>ios-arm64</string><key>LibraryPath</key><string>{library}</string>"
+                + "<key>SupportedPlatform</key><string>ios</string></dict></array></dict></plist>"))] : Array.Empty<(string, byte[])>(),
+        ];
+        var package = Package("Acme.Kit.1.0.0.nupkg", entries);
+        var (exit, output) = Pack(package);
+        if (accepted)
+        {
+            Assert.True(exit == 0, output);
+            Assert.True(File.Exists(package));
+            return;
+        }
+        Assert.NotEqual(0, exit);
+        Assert.Contains("error SWIFTBIND133", output);
+        Assert.Contains("lib/net10.0-ios26.0/Kit.dll is packed with natives its copy's consumer targets do not reference", output);
+        Assert.Contains($"Kit is at {wrapperPath}, which no NativeReference of buildTransitive/net10.0-ios26.0/ reaches", output);
+        Assert.False(File.Exists(package));
+    }
+
+    [Fact]
+    public void Pack_LeavesAnotherChecksScratch_InTheSharedScratchDirectory()
+    {
+        // Two packs of one project share $(BaseIntermediateOutputPath)swift-transition-pack-check:
+        // one finishing must not delete what the other is still checking.
+        var other = Directory.CreateDirectory(Path.Combine(tempDir, "pack-scratch", "another-pack", "lib")).FullName;
+        File.WriteAllText(Path.Combine(other, "in-flight.txt"), "");
+        var package = Package("Acme.Binding.1.0.0.nupkg", ("lib/net10.0/Fixture.dll", File.ReadAllBytes(Fixture("lib", PrimitiveOnly))));
+        var (exit, output) = Pack(package);
+        Assert.True(exit == 0, output);
+        Assert.True(File.Exists(Path.Combine(other, "in-flight.txt")), "the check deleted another check's scratch");
+        // Its own scratch is gone.
+        Assert.Equal(["another-pack"], Directory.GetDirectories(Path.Combine(tempDir, "pack-scratch")).Select(Path.GetFileName));
     }
 
     [Fact]

@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -62,9 +63,10 @@ public sealed class SwiftTransitionPackageCheck : Microsoft.Build.Utilities.Task
             Log.LogError(null, Code, null, package, 0, 0, 0, 0, "{0}", $"The package {Path.GetFileName(package)} was not written, so its Swift transitions cannot be checked.");
             return;
         }
-        var root = Path.Combine(ScratchDirectory, Path.GetFileNameWithoutExtension(package));
-        if (Directory.Exists(root))
-            Directory.Delete(root, recursive: true);
+        // A directory of this check's own: two packs of one project share ScratchDirectory, and each
+        // deletes only what it extracted.
+        var scratch = Path.Combine(ScratchDirectory, Guid.NewGuid().ToString("N"));
+        var root = Path.Combine(scratch, Path.GetFileNameWithoutExtension(package));
         var refuse = true;
         try
         {
@@ -75,6 +77,9 @@ public sealed class SwiftTransitionPackageCheck : Microsoft.Build.Utilities.Task
                 : new List<string>();
             var packaged = new Lazy<List<(PackagedNative Native, NativeScope Scope)>>(() => ReadFrameworks(root));
             var declaresCopies = DeclaresCopies(root);
+            // What each copy's consumer targets reference: an app embeds a copy's native only through
+            // them, so an image under native/<tfm>/ that none reaches is not one its consumers link.
+            var referenced = ReferencedNatives(root);
             var refused = new List<string>();
             var verified = 0;
             foreach (var path in assemblies)
@@ -85,9 +90,20 @@ public sealed class SwiftTransitionPackageCheck : Microsoft.Build.Utilities.Task
                 var shown = Path.GetRelativePath(root, path).Replace('\\', '/');
                 var assembly = new PackagedAssembly(shown, image,
                     new[] { Path.GetDirectoryName(path)! }.Concat(references).ToArray());
-                var natives = new PlatformImages(packaged, declaresCopies, TargetFrameworkPlatform(shown), TargetFrameworkFolder(shown));
+                var folder = TargetFrameworkFolder(shown);
+                var natives = new PlatformImages(packaged, declaresCopies, TargetFrameworkPlatform(shown), folder, referenced);
                 var result = ConsumerTransitionCheck.Check(assembly, natives, requireNativeImages: true,
-                    Path.Combine(ScratchDirectory, "plans", $"{refused.Count + verified}"));
+                    Path.Combine(scratch, "plans", $"{refused.Count + verified}"));
+                var unreached = Unreached(packaged, natives, referenced, folder, image, result);
+                if (!unreached.IsEmpty)
+                {
+                    refused.Add(shown);
+                    Log.LogError(null, Code, null, package, 0, 0, 0, 0, "{0}",
+                        $"{Path.GetFileName(package)}: {shown} is packed with natives its copy's consumer targets do not reference: {string.Join("; ", unreached)}. "
+                        + $"An app embeds a copy's natives only through the NativeReference items of buildTransitive/{folder}/, so it would run without them. "
+                        + "Pack each native where the copy's targets reference it (as SwiftBindings.Sdk lays the copy out), or reference it from the targets. The package was deleted.");
+                    continue;
+                }
                 if (result.Verdict != ConsumerTransitionVerdict.Refused)
                 {
                     verified++;
@@ -120,8 +136,8 @@ public sealed class SwiftTransitionPackageCheck : Microsoft.Build.Utilities.Task
             // A package that was refused, or could not be checked, does not stay where it can be pushed.
             if (refuse && File.Exists(package))
                 File.Delete(package);
-            if (Directory.Exists(ScratchDirectory))
-                Directory.Delete(ScratchDirectory, recursive: true);
+            if (Directory.Exists(scratch))
+                Directory.Delete(scratch, recursive: true);
         }
     }
 
@@ -174,6 +190,75 @@ public sealed class SwiftTransitionPackageCheck : Microsoft.Build.Utilities.Task
                 return n.Libraries.Select(library => (new PackagedNative(library, n.Shown, image), Scope(n.Shown)));
             })
             .ToList();
+    }
+
+    /// <summary>
+    /// The package paths each copy's consumer targets reference (<see cref="PackageCopyRules.NativeReferencePaths"/>),
+    /// keyed by copy target framework, for each copy that ships consumer targets
+    /// (<c>buildTransitive/&lt;tfm&gt;/*.targets</c>). A copy without targets is absent: its natives are
+    /// judged by where they lie alone.
+    /// </summary>
+    internal static Dictionary<string, List<string>> ReferencedNatives(string root)
+    {
+        var referenced = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        var build = Path.Combine(root, "buildTransitive");
+        if (!Directory.Exists(build))
+            return referenced;
+        foreach (var directory in Directory.GetDirectories(build))
+        {
+            var tfm = Path.GetFileName(directory);
+            var targets = Directory.GetFiles(directory, "*.targets");
+            if (!PackageCopyCheck.IsCopyTfm(tfm) || targets.Length == 0)
+                continue;
+            referenced[tfm] = targets.Order(StringComparer.Ordinal)
+                .SelectMany(t => PackageCopyRules.NativeReferencePaths(tfm, File.ReadAllText(t)))
+                .SelectMany(p => Slices(root, p)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        }
+        return referenced;
+
+        // A referenced XCFramework reaches only the library each slice its Info.plist lists names,
+        // which is what a build chooses and links; anything beside it is never embedded.
+        static IEnumerable<string> Slices(string root, string path)
+        {
+            var plist = Path.Combine(root, path, "Info.plist");
+            if (!path.EndsWith(".xcframework", StringComparison.OrdinalIgnoreCase) || !File.Exists(plist))
+                return [path];
+            var listed = XCFrameworkSlices.Listed(File.ReadAllBytes(plist));
+            return listed.Count == 0 ? [path] : listed.Select(s => s.Value.LibraryPath is { } library ? $"{path}/{s.Key}/{library}" : $"{path}/{s.Key}");
+        }
+    }
+
+    /// <summary>
+    /// Whether an app that consumes the copy <paramref name="scope"/> names embeds the native at
+    /// <paramref name="shown"/>: it lies at or under a path the copy's targets reference, or the copy
+    /// ships no targets to say (or the native belongs to no copy).
+    /// </summary>
+    internal static bool Reached(NativeScope scope, string shown, Dictionary<string, List<string>> referenced) =>
+        scope.CopyTfm is not { } tfm || !referenced.TryGetValue(tfm, out var paths)
+        || paths.Any(p => shown.Equals(p, StringComparison.OrdinalIgnoreCase) || shown.StartsWith(p + "/", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// What the assembly at <paramref name="folder"/> needs from its copy that the package carries
+    /// only where the copy's targets do not reach: a wrapper library its identity names, or a library
+    /// its manifests route through that the check found no image of. A wrapper absent from the package
+    /// altogether is not reported: a binding whose wrapper did not compile packs without one (SWIFTBIND051).
+    /// </summary>
+    private static ImmutableArray<string> Unreached(Lazy<List<(PackagedNative Native, NativeScope Scope)>> packaged, IReadOnlyList<PackagedNative> natives,
+        Dictionary<string, List<string>> referenced, string? folder, byte[] image, ConsumerTransitionResult result)
+    {
+        if (folder is null || !referenced.ContainsKey(folder))
+            return [];
+        var stray = packaged.Value.Where(n => string.Equals(n.Scope.CopyTfm, folder, StringComparison.OrdinalIgnoreCase) && !Reached(n.Scope, n.Native.DisplayPath, referenced))
+            .Select(n => n.Native).ToList();
+        if (stray.Count == 0)
+            return [];
+        var needed = SwiftWrapperIdentityCheck.Read(image).Identities.Select(i => i.Library)
+            .Concat(result.UnverifiedLibraries)
+            .Distinct(StringComparer.Ordinal);
+        return needed.Where(library => !natives.Any(n => n.Library == library))
+            .SelectMany(library => stray.Where(n => n.Library == library)
+                .Select(n => $"{library} is at {n.DisplayPath}, which no NativeReference of buildTransitive/{folder}/ reaches"))
+            .Distinct(StringComparer.Ordinal).ToImmutableArray();
     }
 
     /// <summary>
@@ -246,14 +331,17 @@ public sealed class SwiftTransitionPackageCheck : Microsoft.Build.Utilities.Task
     /// of its platform and natives shared by every target framework. Read when a manifest routes
     /// through a library, once per package.
     /// </summary>
-    private sealed class PlatformImages(Lazy<List<(PackagedNative Native, NativeScope Scope)>> packaged, bool declaresCopies, string? platform, string? folder) : IReadOnlyList<PackagedNative>
+    private sealed class PlatformImages(Lazy<List<(PackagedNative Native, NativeScope Scope)>> packaged, bool declaresCopies, string? platform, string? folder,
+        Dictionary<string, List<string>> referenced) : IReadOnlyList<PackagedNative>
     {
         // In a package of copies an assembly links only its own copy's natives, never a shared or
         // legacy image; those serve packages without copies (the runtime, the supplement, earlier layouts).
+        // Of its own copy's, only those its consumer targets reference.
         private readonly Lazy<List<PackagedNative>> scoped = new(() =>
         {
             var copies = declaresCopies || packaged.Value.Any(n => n.Scope.CopyTfm is not null);
-            return packaged.Value.Where(n => n.Scope.Serves(platform, folder) && (!copies || n.Scope.CopyTfm is not null))
+            return packaged.Value.Where(n => n.Scope.Serves(platform, folder) && (!copies || n.Scope.CopyTfm is not null)
+                                              && Reached(n.Scope, n.Native.DisplayPath, referenced))
                 .Select(n => n.Native).ToList();
         });
 

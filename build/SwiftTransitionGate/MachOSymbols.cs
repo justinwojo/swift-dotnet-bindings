@@ -103,6 +103,14 @@ public static class MachOSymbols
         return [ReadThin(image, 0)];
     }
 
+    /// <summary>The architecture a Mach-O CPU type and subtype name, as the slices of <see cref="Read"/> are named.</summary>
+    public static string ArchitectureName(uint cpuType, uint cpuSubtype) => cpuType switch
+    {
+        0x0100000C => (cpuSubtype & 0xFF) == 2 ? "arm64e" : "arm64",
+        0x01000007 => "x86_64",
+        _ => $"0x{cpuType:x}",
+    };
+
     private static MachOSlice ReadThin(byte[] image, int slice)
     {
         Span<byte> span = image;
@@ -111,12 +119,7 @@ public static class MachOSymbols
         var cpuType = BinaryPrimitives.ReadUInt32LittleEndian(span[(slice + 4)..]);
         var cpuSubtype = BinaryPrimitives.ReadUInt32LittleEndian(span[(slice + 8)..]);
         var commands = BinaryPrimitives.ReadUInt32LittleEndian(span[(slice + 16)..]);
-        var architecture = cpuType switch
-        {
-            0x0100000C => (cpuSubtype & 0xFF) == 2 ? "arm64e" : "arm64",
-            0x01000007 => "x86_64",
-            _ => $"0x{cpuType:x}",
-        };
+        var architecture = ArchitectureName(cpuType, cpuSubtype);
 
         var sections = ImmutableArray.CreateBuilder<(ulong, ulong, uint)>();
         (uint Offset, uint Count, uint Strings, uint StringsSize)? symtab = null;

@@ -200,7 +200,8 @@ public sealed class SwiftTransitionConsumerCheck : Microsoft.Build.Utilities.Tas
     {
         var assembly = new PackagedAssembly(candidate.Path, File.ReadAllBytes(candidate.Path),
             new[] { Path.GetDirectoryName(candidate.Path)! }.Concat(referenceDirectories).Distinct(StringComparer.Ordinal).ToArray());
-        var scratch = Path.Combine(ScratchDirectory, candidate.Mvid.ToString("N"));
+        // Of this inspection alone: two builds of one project may inspect the same assembly at once.
+        var scratch = Path.Combine(ScratchDirectory, $"{candidate.Mvid:N}-{Guid.NewGuid():N}");
         try
         {
             var result = ConsumerTransitionCheck.Check(assembly, images, requireNativeImages: false, scratch);

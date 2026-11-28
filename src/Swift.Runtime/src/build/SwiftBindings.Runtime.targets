@@ -324,6 +324,28 @@
         RequireExactCopy="$([MSBuild]::ValueOrDefault('$(SwiftBindingsRequireExactCopy)', 'false'))" />
   </Target>
 
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Runtime contract check (SWIFTBIND144)                                    -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- A generated binding's module initializer passes the runtime contract epoch it was generated
+       against to RuntimeContract.AssertCompatible, which throws when this runtime does not load that
+       epoch. NuGet keeps a binding package and its runtime within one minor, but a direct reference
+       to a newer runtime, a plain Reference to a binding assembly or a ProjectReference diamond
+       bypasses that, and the app then builds and fails when it loads the binding, on every engine.
+       This step reads each resolved reference's epoch from its module initializer and the window
+       from the Swift.Runtime assembly the build resolves, and refuses the build with the load gate's
+       own rule. A binding generated before the handshake (no epoch) is refused too: it predates the
+       dispatch contract this runtime speaks. Runs in every build that resolves references (apps,
+       libraries, every engine), not in design-time builds. -->
+  <UsingTask TaskName="SwiftBindings.Tasks.SwiftRuntimeContractCheck" AssemblyFile="$(_SwiftBindingsTasksAssembly)" />
+
+  <Target Name="_SwiftBindingsCheckRuntimeContract"
+          BeforeTargets="CoreCompile"
+          DependsOnTargets="ResolveAssemblyReferences"
+          Condition="'$(DesignTimeBuild)' != 'true' AND Exists('$(_SwiftBindingsTasksAssembly)')">
+    <SwiftRuntimeContractCheck CompileReferences="@(ReferencePath)" RuntimeReferences="@(ReferenceCopyLocalPaths)" />
+  </Target>
+
   <!-- NOTE: there is deliberately no SwiftSupport-folder injection here. Apple's
        SwiftSupport/ requirement (ITMS-90426) applies to apps that embed loose
        /usr/lib/swift back-deployment dylibs. This runtime now ships as a signed dynamic

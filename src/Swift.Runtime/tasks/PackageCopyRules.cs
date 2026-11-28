@@ -171,7 +171,7 @@ public static class PackageCopyRules
 
     private const string ThisFileDirectory = "$(MSBuildThisFileDirectory)";
 
-    /// <summary>Each <c>NativeReference</c> of <paramref name="targets"/>, resolved from <c>buildTransitive/&lt;packTfm&gt;/</c>.</summary>
+    /// <summary>The problems of each <c>NativeReference</c> of <paramref name="targets"/>, resolved from <c>buildTransitive/&lt;packTfm&gt;/</c>.</summary>
     private static IEnumerable<string> ResolveNativeReferences(string packTfm, string targets)
     {
         XDocument document;
@@ -183,7 +183,30 @@ public static class PackageCopyRules
         {
             return [$"do not read as an MSBuild project ({ex.Message})"];
         }
-        var problems = new List<string>();
+        return NativeReferences(packTfm, document).Where(r => r.Problem is not null).Select(r => r.Problem!).ToList();
+    }
+
+    /// <summary>
+    /// The package paths the <c>NativeReference</c> items of a copy's consumer targets name, resolved
+    /// as NuGet lays the file out (from <c>buildTransitive/&lt;packTfm&gt;/</c>): what an app that
+    /// consumes the copy embeds, when the path exists. A reference that does not resolve into the
+    /// copy's <c>native/&lt;packTfm&gt;/</c> names nothing (<see cref="CheckTargetsReferences"/> refuses
+    /// it), and targets that do not read name nothing.
+    /// </summary>
+    public static IReadOnlyList<string> NativeReferencePaths(string packTfm, string targets)
+    {
+        try
+        {
+            return NativeReferences(packTfm, XDocument.Parse(targets)).Where(r => r.Problem is null).Select(r => r.Resolved!.TrimEnd('/')).ToList();
+        }
+        catch (XmlException)
+        {
+            return [];
+        }
+    }
+
+    private static IEnumerable<(string? Resolved, string? Problem)> NativeReferences(string packTfm, XDocument document)
+    {
         var own = $"native/{packTfm}/";
         foreach (var element in document.Descendants().Where(e => e.Name.LocalName == "NativeReference"))
         {
@@ -192,21 +215,21 @@ public static class PackageCopyRules
                 var path = include.Replace('\\', '/');
                 if (!path.StartsWith(ThisFileDirectory, StringComparison.OrdinalIgnoreCase))
                 {
-                    problems.Add($"reference {include}, which is not a path from the targets' own directory into the copy's {own}");
+                    yield return (null, $"reference {include}, which is not a path from the targets' own directory into the copy's {own}");
                     continue;
                 }
                 var rest = path[ThisFileDirectory.Length..];
                 if (rest.Contains("$(", StringComparison.Ordinal) || rest.Contains("@(", StringComparison.Ordinal) || rest.Contains("%(", StringComparison.Ordinal))
                 {
-                    problems.Add($"reference {include}, which goes through a property or an item the pack cannot resolve into the copy's {own}");
+                    yield return (null, $"reference {include}, which goes through a property or an item the pack cannot resolve into the copy's {own}");
                     continue;
                 }
                 var resolved = Resolve($"buildTransitive/{packTfm}/{Unescape(rest).Replace('\\', '/')}");
-                if (resolved is null || !resolved.StartsWith(own, StringComparison.OrdinalIgnoreCase) || resolved.Length == own.Length)
-                    problems.Add($"reference {include}, which resolves to {resolved ?? "a path outside the package"}, outside the copy's {own}");
+                yield return resolved is null || !resolved.StartsWith(own, StringComparison.OrdinalIgnoreCase) || resolved.Length == own.Length
+                    ? (null, $"reference {include}, which resolves to {resolved ?? "a path outside the package"}, outside the copy's {own}")
+                    : (resolved, null);
             }
         }
-        return problems;
     }
 
     /// <summary><paramref name="value"/> with MSBuild's <c>%XX</c> escapes decoded, as MSBuild reads an item's path.</summary>
