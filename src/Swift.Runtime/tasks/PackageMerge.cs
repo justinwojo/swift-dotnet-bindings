@@ -1113,13 +1113,31 @@ public static class SwiftBindingPackageMerge
         }
         var olderImages = NativeImages(older, problems);
         var newerImages = NativeImages(newer, problems);
-        foreach (var (relative, image) in olderImages.Where(f => IsDynamicImage(f.Key)))
+        var olderSymbols = new Dictionary<string, ImmutableArray<MachOSlice>>(StringComparer.Ordinal);
+        var newerSymbols = new Dictionary<string, ImmutableArray<MachOSlice>>(StringComparer.Ordinal);
+        var compared = new HashSet<(string Older, string Newer)>();
+        foreach (var path in olderImages.Paths.Where(IsDynamicImage))
         {
-            if (!newerImages.TryGetValue(relative, out var newerImage))
+            // A symbolic link (a versioned framework's root binary, or a path through Versions/Current)
+            // is compared as the image it names, in each copy. Two paths that name the same pair of
+            // images are compared once.
+            if (olderImages.Resolve(path) is not { } real)
             {
-                problems.Add($"{NativeRoot(newer)} lacks {relative}, which the older copy {older.Tfm} ships.");
+                problems.Add(UnresolvedLink(older, olderImages, path));
                 continue;
             }
+            if (newerImages.Resolve(path) is not { } newerReal)
+            {
+                problems.Add(newerImages.LinkAlong(path) is null
+                    ? $"{NativeRoot(newer)} lacks {path}, which the older copy {older.Tfm} ships."
+                    : UnresolvedLink(newer, newerImages, path));
+                continue;
+            }
+            if (!compared.Add((real, newerReal)))
+                continue;
+            var relative = real == newerReal ? real : path;
+            var image = olderImages.Files[real];
+            var newerImage = newerImages.Files[newerReal];
             // A static framework's binary is an archive the app links in; its exports are not an image's.
             if (IsStaticArchive(image) != IsStaticArchive(newerImage))
             {
@@ -1134,8 +1152,8 @@ public static class SwiftBindingPackageMerge
             ImmutableArray<MachOSlice> before, after;
             try
             {
-                before = MachOSymbols.Read(image);
-                after = MachOSymbols.Read(newerImage);
+                before = Symbols(olderSymbols, real, image);
+                after = Symbols(newerSymbols, newerReal, newerImage);
             }
             catch (BadImageFormatException ex)
             {
@@ -1160,6 +1178,13 @@ public static class SwiftBindingPackageMerge
             }
         }
         return problems;
+
+        static ImmutableArray<MachOSlice> Symbols(Dictionary<string, ImmutableArray<MachOSlice>> read, string path, byte[] image)
+        {
+            if (!read.TryGetValue(path, out var slices))
+                read[path] = slices = MachOSymbols.Read(image);
+            return slices;
+        }
     }
 
     /// <summary>Where <paramref name="copy"/>'s natives are, as a package path prefix.</summary>
@@ -1168,23 +1193,25 @@ public static class SwiftBindingPackageMerge
     /// <summary>
     /// The native files of <paramref name="copy"/>, keyed by their path under <see cref="NativeRoot"/>:
     /// <c>native/&lt;tfm&gt;/</c>, or each resource package of <c>lib/&lt;tfm&gt;/</c> (a zip read in
-    /// place, keyed as if it were its directory).
+    /// place, keyed as if it were its directory). A resource package stores a versioned framework's
+    /// symbolic links as links (<c>zip -y</c>, which the consumer's extraction restores), so a link
+    /// entry is kept as the path it names, never read as the file it stands for.
     /// </summary>
-    private static Dictionary<string, byte[]> NativeImages(Copy copy, List<string> problems)
+    private static NativeFiles NativeImages(Copy copy, List<string> problems)
     {
-        var images = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        var images = new NativeFiles();
         var prefix = NativeRoot(copy);
         foreach (var (name, data) in copy.From.Files.Where(f => f.Key.StartsWith(prefix, StringComparison.Ordinal)))
         {
             var relative = name[prefix.Length..];
             if (copy.Payload == PayloadNative)
             {
-                images[relative] = data;
+                images.Files[relative] = data;
                 continue;
             }
             if (relative.Contains('/') && relative.Split('/')[0].EndsWith(".resources", StringComparison.OrdinalIgnoreCase))
             {
-                images[relative] = data;
+                images.Files[relative] = data;
                 continue;
             }
             if (relative.Contains('/') || !relative.EndsWith(".resources.zip", StringComparison.OrdinalIgnoreCase))
@@ -1193,12 +1220,22 @@ public static class SwiftBindingPackageMerge
             try
             {
                 using var zip = new ZipArchive(new MemoryStream(data, writable: false), ZipArchiveMode.Read);
-                foreach (var entry in zip.Entries.Where(e => !e.FullName.EndsWith('/')))
+                foreach (var entry in zip.Entries)
                 {
+                    // Keyed as extraction names it: a "." or empty component names no folder.
+                    var path = directory + string.Join('/', entry.FullName.Replace('\\', '/').Split('/').Where(c => c is not ("" or ".")));
+                    if (entry.FullName.EndsWith('/'))
+                    {
+                        images.Folders.Add(path);
+                        continue;
+                    }
                     using var stream = entry.Open();
                     using var buffer = new MemoryStream();
                     stream.CopyTo(buffer);
-                    images[directory + entry.FullName.Replace('\\', '/')] = buffer.ToArray();
+                    if (IsSymbolicLink(entry))
+                        images.Links[path] = Encoding.UTF8.GetString(buffer.ToArray());
+                    else
+                        images.Files[path] = buffer.ToArray();
                 }
             }
             catch (InvalidDataException ex)
@@ -1207,6 +1244,100 @@ public static class SwiftBindingPackageMerge
             }
         }
         return images;
+    }
+
+    /// <summary>Whether a zip entry is a symbolic link: its Unix mode (the high half of the external attributes) is <c>S_IFLNK</c>.</summary>
+    private static bool IsSymbolicLink(ZipArchiveEntry entry) => ((entry.ExternalAttributes >> 16) & 0xF000) == 0xA000;
+
+    /// <summary>A copy's native files and the symbolic links among them, keyed by path under <see cref="NativeRoot"/>.</summary>
+    private sealed class NativeFiles
+    {
+        // The most links one path resolves through, as SYMLOOP_MAX bounds it.
+        private const int MaxLinks = 32;
+
+        public Dictionary<string, byte[]> Files { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>Each symbolic link, with the path it names, relative to the folder that holds it.</summary>
+        public Dictionary<string, string> Links { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>The folders the archive stores as entries of their own, which may hold nothing.</summary>
+        public HashSet<string> Folders { get; } = new(StringComparer.Ordinal);
+
+        public IEnumerable<string> Paths => Files.Keys.Concat(Links.Keys);
+
+        private HashSet<string>? directories;
+
+        /// <summary>
+        /// The file <paramref name="path"/> names, resolved one component at a time as the file
+        /// system resolves it: a link is replaced by its target, read from the folder that holds the
+        /// link, and every component before the last must be a folder. Null when a link names
+        /// nothing the copy carries, leaves the resource package that holds it (the first path
+        /// segment), or loops.
+        /// </summary>
+        public string? Resolve(string path)
+        {
+            directories ??= Paths.SelectMany(Holders).Concat(Folders).Concat(Folders.SelectMany(Holders)).ToHashSet(StringComparer.Ordinal);
+            var pending = new List<string>(path.Split('/'));
+            var resolved = new List<string>();
+            var followed = 0;
+            while (pending.Count > 0)
+            {
+                var part = pending[0];
+                pending.RemoveAt(0);
+                if (part is "" or ".")
+                    continue;
+                if (part == "..")
+                {
+                    // Every resolved component is a real folder, so its parent is the folder above.
+                    if (resolved.Count <= 1)
+                        return null;
+                    resolved.RemoveAt(resolved.Count - 1);
+                    continue;
+                }
+                resolved.Add(part);
+                var current = string.Join('/', resolved);
+                if (Links.TryGetValue(current, out var target))
+                {
+                    if (++followed > MaxLinks || target.StartsWith('/'))
+                        return null;
+                    resolved.RemoveAt(resolved.Count - 1);
+                    pending.InsertRange(0, target.Split('/'));
+                    continue;
+                }
+                if (pending.Count > 0 && !directories.Contains(current))
+                    return null;
+            }
+            var real = string.Join('/', resolved);
+            return Files.ContainsKey(real) ? real : null;
+        }
+
+        /// <summary>Every folder that holds <paramref name="path"/>, outermost first.</summary>
+        private static IEnumerable<string> Holders(string path)
+        {
+            for (var slash = path.IndexOf('/'); slash >= 0; slash = path.IndexOf('/', slash + 1))
+                yield return path[..slash];
+        }
+
+        /// <summary>The first symbolic link along <paramref name="path"/>, if any.</summary>
+        public string? LinkAlong(string path)
+        {
+            var parts = path.Split('/');
+            for (var i = 1; i <= parts.Length; i++)
+            {
+                var prefix = string.Join('/', parts.Take(i));
+                if (Links.ContainsKey(prefix))
+                    return prefix;
+            }
+            return null;
+        }
+    }
+
+    private static string UnresolvedLink(Copy copy, NativeFiles files, string path)
+    {
+        if (files.LinkAlong(path) is not { } link)
+            return $"{NativeRoot(copy)}{path} does not resolve to a file its resource package carries.";
+        return $"{NativeRoot(copy)}{link} is a symbolic link to '{files.Links[link]}', which names no file its resource package carries"
+               + (link == path ? "." : $", so {path} reads as nothing.");
     }
 
     // The manifest hash symbol differs per copy by design.

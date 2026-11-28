@@ -374,6 +374,134 @@ public sealed class PackageCopyTests : IDisposable
     }
 
     [Fact]
+    public void Merge_ResourcePackagesThatStoreAVersionedFrameworkWithSymbolicLinks_ReadEachImageOnce()
+    {
+        if (!OperatingSystem.IsMacOS())
+            return;
+        var older = Dylib("vlolder", "int kit_a(void){return 1;} int kit_b(void){return 2;}");
+        var newer = Dylib("vlnewer", "int kit_a(void){return 1;} int kit_b(void){return 2;} int kit_c(void){return 3;}");
+        var lost = Dylib("vllost", "int kit_a(void){return 1;}");
+        const string a = "net10.0-maccatalyst26.0", b = "net10.0-maccatalyst27.2";
+        (string, byte[])[] Resources(string tfm, byte[] zip) => [($"lib/{tfm}/Acme.Kit.resources.zip", zip)];
+
+        // The root binary and Versions/Current are links: the image they name is compared, once.
+        var merged = Merge([
+            Contribution("x26", [a], payload: "resources", extra: Resources(a, VersionedFrameworkZip(older, links: true))),
+            Contribution("x27", [b], payload: "resources", extra: Resources(b, VersionedFrameworkZip(newer, links: true))),
+        ], a, b);
+        Assert.True(merged.Problems.IsEmpty, string.Join("\n", merged.Problems));
+        var compared = Assert.Single(merged.Notes, n => n.Contains("  exports ", StringComparison.Ordinal));
+        Assert.Contains($"exports Acme.Kit.resources/{CatalystFramework}Versions/A/Kit (arm64)", compared);
+
+        // A newer copy that loses an export is refused once, at the image itself.
+        var refused = Merge([
+            Contribution("y26", [a], payload: "resources", extra: Resources(a, VersionedFrameworkZip(older, links: true))),
+            Contribution("y27", [b], payload: "resources", extra: Resources(b, VersionedFrameworkZip(lost, links: true))),
+        ], a, b);
+        var problem = Assert.Single(refused.Problems);
+        Assert.Contains($"lib/{b}/Acme.Kit.resources/{CatalystFramework}Versions/A/Kit (arm64) lacks 1 export(s)", problem);
+        Assert.Contains("kit_b", problem);
+    }
+
+    [Theory]
+    // Entry paths spelled with "." components, which extraction drops.
+    [InlineData("./", "Versions/Current/Kit", false)]
+    // A link through a folder the archive stores as an entry of its own, holding nothing.
+    [InlineData("", "Empty/../Versions/A/Kit", true)]
+    public void Merge_AResourcePackageWhosePathsResolveOnExtraction_Merges(string spelling, string binaryLink, bool emptyFolder)
+    {
+        var image = Encoding.ASCII.GetBytes("!<arch>\n/               0           0     0     0       8         `\n\0\0\0\0\0\0\0\0");
+        const string a = "net10.0-maccatalyst26.0", b = "net10.0-maccatalyst27.2";
+        var framework = spelling + CatalystFramework;
+        byte[] Zip() => ZipWithLinks([
+            (framework + "Versions/A/Kit", image, null),
+            (framework + "Versions/Current", null, "A"),
+            (framework + "Kit", null, binaryLink),
+            .. emptyFolder ? [(framework + "Empty/", (byte[]?)null, (string?)null)] : Array.Empty<(string, byte[]?, string?)>(),
+        ]);
+        var merged = Merge([
+            Contribution("x26", [a], payload: "resources", extra: [($"lib/{a}/Acme.Kit.resources.zip", Zip())]),
+            Contribution("x27", [b], payload: "resources", extra: [($"lib/{b}/Acme.Kit.resources.zip", Zip())]),
+        ], a, b);
+        Assert.True(merged.Problems.IsEmpty, string.Join("\n", merged.Problems));
+        Assert.NotNull(merged.Package);
+    }
+
+    [Fact]
+    public void Merge_ANewerCopyWhoseFrameworkLinksNameAnotherVersion_ComparesTheVersionTheyName()
+    {
+        if (!OperatingSystem.IsMacOS())
+            return;
+        var image = Dylib("vvkept", "int kit_a(void){return 1;} int kit_b(void){return 2;}");
+        var lost = Dylib("vvlost", "int kit_a(void){return 1;}");
+        const string a = "net10.0-maccatalyst26.0", b = "net10.0-maccatalyst27.2";
+        byte[] Linked(string current, params (string Version, byte[] Image)[] versions) => ZipWithLinks([
+            .. versions.Select(v => (CatalystFramework + $"Versions/{v.Version}/Kit", (byte[]?)v.Image, (string?)null)),
+            (CatalystFramework + "Versions/Current", null, current),
+            (CatalystFramework + "Kit", null, "Versions/Current/Kit"),
+        ]);
+        // The newer copy keeps the older copy's Versions/A, but its links name Versions/B.
+        var refused = Merge([
+            Contribution("x26", [a], payload: "resources", extra: [($"lib/{a}/Acme.Kit.resources.zip", Linked("A", ("A", image)))]),
+            Contribution("x27", [b], payload: "resources", extra: [($"lib/{b}/Acme.Kit.resources.zip", Linked("B", ("A", image), ("B", lost)))]),
+        ], a, b);
+        var problem = Assert.Single(refused.Problems);
+        Assert.Contains($"lib/{b}/Acme.Kit.resources/{CatalystFramework}Kit (arm64) lacks 1 export(s)", problem);
+        Assert.Contains("kit_b", problem);
+    }
+
+    [Theory]
+    // A copy zipped without links stores the root binary and Versions/Current/ as files of their own;
+    // the other copy's links name the same images.
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void Merge_AResourcePackageWithLinksAndOneWithout_CompareTheSameImages(bool olderLinks, bool newerLinks)
+    {
+        if (!OperatingSystem.IsMacOS())
+            return;
+        var image = Dylib($"vm{olderLinks}", "int kit_a(void){return 1;}");
+        const string a = "net10.0-maccatalyst26.0", b = "net10.0-maccatalyst27.2";
+        var merged = Merge([
+            Contribution("x26", [a], payload: "resources", extra: [($"lib/{a}/Acme.Kit.resources.zip", VersionedFrameworkZip(image, olderLinks))]),
+            Contribution("x27", [b], payload: "resources", extra: [($"lib/{b}/Acme.Kit.resources.zip", VersionedFrameworkZip(image, newerLinks))]),
+        ], a, b);
+        Assert.True(merged.Problems.IsEmpty, string.Join("\n", merged.Problems));
+        Assert.NotNull(merged.Package);
+    }
+
+    [Theory]
+    // A link to a file the archive does not carry.
+    [InlineData("Versions/Current/Kit", "Versions/Current", "B")]
+    // A link out of the archive.
+    [InlineData("../../../../Kit", null, null)]
+    // Links that name each other.
+    [InlineData("Versions/Current/Kit", "Versions/Current", "Current")]
+    // A path through a folder the archive does not carry, which no file system resolves.
+    [InlineData("Missing/../Versions/A/Kit", null, null)]
+    // A path through a file, as if it were a folder.
+    [InlineData("Versions/A/Kit/../Kit", null, null)]
+    public void Merge_AFrameworkBinaryLinkThatResolvesToNoImage_IsRefused(string binaryLink, string? otherLink, string? otherTarget)
+    {
+        var image = Encoding.ASCII.GetBytes("!<arch>\n/               0           0     0     0       8         `\n\0\0\0\0\0\0\0\0");
+        const string a = "net10.0-maccatalyst26.0", b = "net10.0-maccatalyst27.2";
+        var entries = new List<(string, byte[]?, string?)>
+        {
+            (CatalystFramework + "Versions/A/Kit", image, null),
+            (CatalystFramework + "Kit", null, binaryLink),
+        };
+        if (otherLink is not null)
+            entries.Add((CatalystFramework + otherLink, null, otherTarget));
+        var refused = Merge([
+            Contribution("x26", [a], payload: "resources", extra: [($"lib/{a}/Acme.Kit.resources.zip", ZipWithLinks([.. entries]))]),
+            Contribution("x27", [b], payload: "resources",
+                extra: [($"lib/{b}/Acme.Kit.resources.zip", ZipWithLinks((CatalystFramework + "Versions/A/Kit", image, null)))]),
+        ], a, b);
+        Assert.Null(refused.Package);
+        var problem = Assert.Single(refused.Problems);
+        Assert.Contains($"lib/{a}/Acme.Kit.resources/{CatalystFramework}Kit is a symbolic link to '{binaryLink}'", problem);
+    }
+
+    [Fact]
     public void Merge_ResourcePackagesThatCarryAStaticFramework_Merge()
     {
         // A static framework's binary is an archive: present in every copy, with no image exports to compare.
@@ -1549,5 +1677,64 @@ public sealed class PackageCopyTests : IDisposable
         process.WaitForExit();
         Assert.True(process.ExitCode == 0, error);
         return File.ReadAllBytes(output);
+    }
+
+    /// <summary>The Mac Catalyst slice of <c>Kit.xcframework</c> that <see cref="VersionedFrameworkZip"/> lays out.</summary>
+    private const string CatalystFramework = "Kit.xcframework/ios-arm64_x86_64-maccatalyst/Kit.framework/";
+
+    /// <summary>
+    /// A resource package holding a versioned (Mac Catalyst) framework whose binary is
+    /// <paramref name="image"/>, zipped by the system zip tool: with <c>-y</c>, as a binding project
+    /// zips it, <c>Versions/Current</c>, the root binary and <c>Resources</c> are stored as symbolic
+    /// links; without, every link is stored as the file or folder it names.
+    /// </summary>
+    private byte[] VersionedFrameworkZip(byte[] image, bool links)
+    {
+        var dir = Path.Combine(tempDir, "framework-" + Guid.NewGuid().ToString("N")[..8]);
+        var framework = Path.Combine(dir, CatalystFramework);
+        var versionA = Path.Combine(framework, "Versions", "A");
+        Directory.CreateDirectory(Path.Combine(versionA, "Resources"));
+        File.WriteAllBytes(Path.Combine(versionA, "Kit"), image);
+        File.WriteAllText(Path.Combine(versionA, "Resources", "Info.plist"), "<plist/>");
+        Directory.CreateSymbolicLink(Path.Combine(framework, "Versions", "Current"), "A");
+        File.CreateSymbolicLink(Path.Combine(framework, "Kit"), "Versions/Current/Kit");
+        Directory.CreateSymbolicLink(Path.Combine(framework, "Resources"), "Versions/Current/Resources");
+        File.WriteAllText(Path.Combine(dir, "Kit.xcframework", "Info.plist"), "<plist/>");
+        var zip = Path.Combine(dir, "Acme.Kit.resources.zip");
+        var start = new ProcessStartInfo("zip", links ? ["-q", "-r", "-y", zip, "Kit.xcframework"] : ["-q", "-r", zip, "Kit.xcframework"])
+        {
+            WorkingDirectory = dir,
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+        };
+        using var process = Process.Start(start)!;
+        var error = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        Assert.True(process.ExitCode == 0, error);
+        var data = File.ReadAllBytes(zip);
+        using var archive = new ZipArchive(new MemoryStream(data), ZipArchiveMode.Read);
+        Assert.Equal(links, archive.Entries.Any(e => (e.ExternalAttributes >> 16 & 0xF000) == 0xA000));
+        return data;
+    }
+
+    /// <summary>
+    /// A zip archive of <paramref name="entries"/>, each a file, a symbolic link to <c>Link</c> as
+    /// <c>zip -y</c> stores one, or (a path ending in a slash) a folder.
+    /// </summary>
+    private static byte[] ZipWithLinks(params (string Path, byte[]? Data, string? Link)[] entries)
+    {
+        using var buffer = new MemoryStream();
+        using (var zip = new ZipArchive(buffer, ZipArchiveMode.Create, leaveOpen: true))
+            foreach (var (path, data, link) in entries)
+            {
+                var entry = zip.CreateEntry(path);
+                if (path.EndsWith('/'))
+                    continue;
+                if (link is not null)
+                    entry.ExternalAttributes = unchecked((int)(0xA1EDu << 16)); // S_IFLNK | 0755
+                using var stream = entry.Open();
+                stream.Write(link is null ? data! : Encoding.UTF8.GetBytes(link));
+            }
+        return buffer.ToArray();
     }
 }

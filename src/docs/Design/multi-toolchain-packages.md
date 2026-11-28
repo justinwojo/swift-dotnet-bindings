@@ -133,7 +133,10 @@ copy), an id or version that is not a plain file name, and — per platform, ord
 platform version — a newer copy whose public API (types with the bases and interfaces they convert
 to through the assembly's own base chain, members with their signatures, static or instance binding
 and public or protected access; widening protected to public is allowed) or per-architecture native exports lack an
-older copy's (a `resources` copy's exports are read from the images inside its resource package; a
+older copy's (a `resources` copy's exports are read from the images inside its resource package,
+whose symbolic links, such as a versioned framework's root binary, are followed to the image they
+name, so the same pair of images is compared once and a link the comparison follows that names
+nothing in the package is refused; a
 `none` copy has none to compare) (a library compiles against the oldest copy,
 the app that consumes it runs the newest). A type a signature, base or interface names from another
 assembly is keyed with that assembly's name, so a same-named type of another assembly is another
