@@ -262,16 +262,33 @@
   </PropertyGroup>
   <UsingTask TaskName="SwiftBindings.Tasks.SwiftTransitionPackageCheck" AssemblyFile="$(_SwiftBindingsTasksAssembly)" />
 
+  <!-- The packed assemblies' resolved references for one target framework. The check asks with
+       BuildProjectReferences=false, as NuGet's pack asks its own per-framework questions, so a
+       ProjectReference contributes the output it already has and is never built: building it under
+       `dotnet pack` with the no-build switch fails NETSDK1085. -->
+  <Target Name="_SwiftBindingsStandalonePackReferenceDirectories"
+          DependsOnTargets="ResolveAssemblyReferences"
+          Returns="@(_SwiftBindingsStandalonePackReferenceDirectory->Distinct())">
+    <ItemGroup>
+      <_SwiftBindingsStandalonePackReferenceDirectory Include="@(ReferencePath->'%(RootDir)%(Directory)')" />
+    </ItemGroup>
+  </Target>
+
   <Target Name="_SwiftBindingsCheckStandalonePackedTransitions"
           AfterTargets="Pack"
-          DependsOnTargets="ResolveAssemblyReferences"
           Condition="'$(SwiftBindingsCheckPackedTransitions)' == 'true' AND '$(IsPackable)' != 'false'">
     <Error Code="SWIFTBIND133"
            Condition="!Exists('$(_SwiftBindingsTasksAssembly)')"
            Text="The Swift transition check task $(_SwiftBindingsTasksAssembly) is missing, so the package cannot be checked before it ships. Restore SwiftBindings.Runtime again." />
     <ItemGroup>
-      <_SwiftBindingsStandalonePackReference Include="@(ReferencePath->'%(RootDir)%(Directory)')" />
+      <_SwiftBindingsStandalonePackTfm Include="$(TargetFrameworks)" Condition="'$(TargetFrameworks)' != ''" />
+      <_SwiftBindingsStandalonePackTfm Include="$(TargetFramework)" Condition="'$(TargetFrameworks)' == ''" />
     </ItemGroup>
+    <MSBuild Projects="$(MSBuildProjectFullPath)"
+             Targets="_SwiftBindingsStandalonePackReferenceDirectories"
+             Properties="TargetFramework=%(_SwiftBindingsStandalonePackTfm.Identity);BuildProjectReferences=false">
+      <Output TaskParameter="TargetOutputs" ItemName="_SwiftBindingsStandalonePackReference" />
+    </MSBuild>
     <SwiftTransitionPackageCheck Packages="@(NuGetPackOutput)"
                                  ReferenceDirectories="@(_SwiftBindingsStandalonePackReference->Distinct())"
                                  ScratchDirectory="$(BaseIntermediateOutputPath)swift-transition-pack-check" />

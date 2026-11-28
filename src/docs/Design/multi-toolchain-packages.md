@@ -114,7 +114,7 @@ SDK version; the pipeline owns the matrix. The SDK merges the contributions:
 dotnet msbuild My.Binding.csproj -t:SwiftBindingsMergePackages \
   '-p:SwiftBindingsMergeContributions="x26.nupkg;x27.nupkg;n11.nupkg"' \
   '-p:SwiftBindingsMergeTargetFrameworks="net10.0-ios26.0;net10.0-ios27.2;net11.0-ios27.2"' \
-  [-p:SwiftBindingsMergeOutput=dir]
+  [-p:SwiftBindingsMergeOutput=dir] [-p:SwiftBindingsMergeConfiguration=Release]
 ```
 
 The inner double quotes keep MSBuild from splitting the lists at their semicolons; the outer single
@@ -224,7 +224,10 @@ renamed type priority would instead move the natural name in the opposite direct
 symbol (`SBTM_`) differs per copy by design and is not compared; the wrapper
 identity `SBWI_<M>` has one name in every copy and a value of each copy's own. It writes a nuspec
 with each copy's own dependency group, checks the Windows restore path budget for the real id and
-version, and runs SWIFTBIND133 on the result. The
+version, and runs SWIFTBIND133 on the result, with the merging project's references read where they
+are: the merge builds nothing, and a `ProjectReference`'s output is read in the configuration the
+contributions were packed in (`SwiftBindingsMergeConfiguration`, by default `dotnet pack`'s, Release unless
+the project sets `PackRelease` to false). The
 merged package is staged under a name of the merge's own until those checks pass, and the merge
 refuses an output directory where the merged package would replace one of its own contributions
 (compared through symbolic links and without case, as the default Apple and Windows volumes

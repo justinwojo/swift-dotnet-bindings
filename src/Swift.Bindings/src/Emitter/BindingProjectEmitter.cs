@@ -702,10 +702,12 @@ namespace BindingsGeneration
                        than ship it unchecked. -->
                   <Target Name="_SwiftBindingsRequireStandalonePackCheck"
                           BeforeTargets="GenerateNuspec"
-                          DependsOnTargets="ResolveAssemblyReferences"
+                          DependsOnTargets="ResolveLockFileReferences"
                           Condition="'$(SwiftBindingsCheckPackedTransitions)' == 'true' AND '$(IsPackable)' != 'false' AND '$({StandalonePackCheckMarker})' != 'true'">
+                    <!-- The restored runtime, read from the assets file: resolving every reference would
+                         build each ProjectReference, which a pack with the no-build switch refuses. -->
                     <ItemGroup>
-                      <_SwiftBindingsResolvedRuntime Include="@(ReferencePath)" Condition="'%(ReferencePath.NuGetPackageId)' == 'SwiftBindings.Runtime'" />
+                      <_SwiftBindingsResolvedRuntime Include="@(Reference)" Condition="'%(Reference.NuGetPackageId)' == 'SwiftBindings.Runtime'" />
                     </ItemGroup>
                     <PropertyGroup>
                       <_SwiftBindingsResolvedRuntimeVersion>@(_SwiftBindingsResolvedRuntime->'%(NuGetPackageVersion)'->Distinct())</_SwiftBindingsResolvedRuntimeVersion>

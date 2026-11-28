@@ -348,8 +348,11 @@ public sealed class TransitionCheckTasksTests : IDisposable
               </PropertyGroup>
               {projectTargets}
               <Import Project="{SecurityElement.Escape(targets)}" />
-              <Target Name="ResolveAssemblyReferences">
-                <ItemGroup><ReferencePath Include="{SecurityElement.Escape(RuntimeDll)}" NuGetPackageId="SwiftBindings.Runtime" NuGetPackageVersion="0.20.2" /></ItemGroup>
+              <Target Name="ResolveLockFileReferences">
+                <ItemGroup><Reference Include="{SecurityElement.Escape(RuntimeDll)}" NuGetPackageId="SwiftBindings.Runtime" NuGetPackageVersion="0.20.2" /></ItemGroup>
+              </Target>
+              <Target Name="ResolveAssemblyReferences" DependsOnTargets="ResolveLockFileReferences">
+                <ItemGroup><ReferencePath Include="@(Reference)" /></ItemGroup>
               </Target>
               <Target Name="GenerateNuspec">
                 <Copy SourceFiles="{SecurityElement.Escape(staged)}" DestinationFiles="{SecurityElement.Escape(package)}" />

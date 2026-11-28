@@ -4839,7 +4839,8 @@ TARGETSEOF"
        a receipt contradiction, wants the relink failure fixed, which no clean build does.
 
        The packed assemblies' references (the runtime, for carrier types) are the project's own
-       resolved references, per target framework. Pure ObjC bindings make no Swift transition. The
+       references, per target framework, read where they already are and never built (see
+       _SwiftTransitionPackReferenceDirectories). Pure ObjC bindings make no Swift transition. The
        condition reads no @(SwiftFramework): auto-discovery fills it only inside a per-framework
        build, and this target runs in the outer pack of a multi-framework binding (see Target 7c). -->
   <PropertyGroup>
@@ -4849,11 +4850,54 @@ TARGETSEOF"
   <UsingTask TaskName="SwiftBindings.Tasks.PrepareSwiftBindingPackageCopy" AssemblyFile="$(_SwiftBindingsSdkTasksAssembly)" />
   <UsingTask TaskName="SwiftBindings.Tasks.MergeSwiftBindingPackages" AssemblyFile="$(_SwiftBindingsSdkTasksAssembly)" />
 
+  <!-- The sibling bindings the last build's metadata names, for a fresh instance (the merge's) that
+       has not imported it. Reads only that list, so none of the hooks the full metadata import
+       triggers (which write consumer targets and report coverage) run. In a pack's instance the
+       siblings were resolved before ResolveProjectReferences, and resolving them again is a no-op. -->
+  <Target Name="_SwiftTransitionPackReadBindingDependencies">
+    <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)binding-metadata.props"
+             Query="/Project/PropertyGroup/_SwiftBindingDependencies/text()"
+             Condition="Exists('$(_SwiftBindingIntermediateDir)binding-metadata.props')">
+      <Output TaskParameter="Result" PropertyName="_SwiftBindingDependencies" />
+    </XmlPeek>
+  </Target>
+
+  <!-- The directories a packed assembly's references resolve in, for one target framework, found
+       without building anything. Both callers run it with BuildProjectReferences=false, as NuGet's
+       pack asks its own per-framework questions, so a pack shares the instance NuGet already
+       evaluated. It does not depend on ResolveAssemblyReferences: that runs ResolveProjectReferences,
+       which builds every ProjectReference (NETSDK1085 under `dotnet pack` with the no-build switch)
+       and fires this SDK's generate, wrapper and sibling pre-build hooks (all anchored before it), so a
+       merge would generate and build the whole project graph just to name a few folders.
+         - @(ReferencePath): what the build resolved, when this instance has resolved it.
+         - each @(Reference) that names a file, itself or by its HintPath (relative to the project):
+           the targeting packs' assemblies, the restored packages' compile assets (the runtime among
+           them) and assemblies the project references by path.
+         - each ProjectReference's output, asked by GetTargetPath exactly as ResolveProjectReferences
+           asks it when it does not build (a sibling's ObjC companion is copied beside that output),
+           the sibling bindings this binding's metadata names among them, resolved as a build
+           resolves them, without generating anything.
+       A reference that has not been built is a folder that does not exist, which the check skips;
+       a carrier type it would have resolved is then refused, never guessed. -->
   <Target Name="_SwiftTransitionPackReferenceDirectories"
-          DependsOnTargets="ResolveAssemblyReferences"
-          Returns="@(_SwiftTransitionPackReferenceDirectory)">
+          DependsOnTargets="_SwiftTransitionPackReadBindingDependencies;_ResolveSwiftAutoDetectedDependencies;ResolveTargetingPackAssets;PrepareProjectReferences"
+          Returns="@(_SwiftTransitionPackReferenceDirectory->Distinct())">
+    <MSBuild Projects="@(_MSBuildProjectReferenceExistent)"
+             Targets="GetTargetPath"
+             BuildInParallel="$(BuildInParallel)"
+             Properties="%(_MSBuildProjectReferenceExistent.SetConfiguration); %(_MSBuildProjectReferenceExistent.SetPlatform); %(_MSBuildProjectReferenceExistent.SetTargetFramework)"
+             RemoveProperties="%(_MSBuildProjectReferenceExistent.GlobalPropertiesToRemove)$(_GlobalPropertiesToRemoveFromProjectReferences)"
+             Condition="'@(_MSBuildProjectReferenceExistent)' != '' AND '%(_MSBuildProjectReferenceExistent.ReferenceOutputAssembly)' == 'true'">
+      <Output TaskParameter="TargetOutputs" ItemName="_SwiftTransitionPackProjectOutput" />
+    </MSBuild>
     <ItemGroup>
-      <_SwiftTransitionPackReferenceDirectory Include="@(ReferencePath->'%(RootDir)%(Directory)')" />
+      <_SwiftTransitionPackReferenceFile Include="@(ReferencePath)" />
+      <_SwiftTransitionPackReferenceFile Include="$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)', '%(Reference.Identity)'))"
+          Condition="$([System.IO.File]::Exists($([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)', '%(Reference.Identity)'))))" />
+      <_SwiftTransitionPackReferenceFile Include="$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)', '%(Reference.HintPath)'))"
+          Condition="'%(Reference.HintPath)' != '' AND $([System.IO.File]::Exists($([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)', '%(Reference.HintPath)'))))" />
+      <_SwiftTransitionPackReferenceFile Include="@(_SwiftTransitionPackProjectOutput)" />
+      <_SwiftTransitionPackReferenceDirectory Include="@(_SwiftTransitionPackReferenceFile->'%(RootDir)%(Directory)')" />
     </ItemGroup>
   </Target>
 
@@ -4866,7 +4910,7 @@ TARGETSEOF"
     </ItemGroup>
     <MSBuild Projects="$(MSBuildProjectFullPath)"
              Targets="_SwiftTransitionPackReferenceDirectories"
-             Properties="TargetFramework=%(_SwiftTransitionPackTfm.Identity)">
+             Properties="TargetFramework=%(_SwiftTransitionPackTfm.Identity);BuildProjectReferences=false">
       <Output TaskParameter="TargetOutputs" ItemName="_SwiftTransitionPackReference" />
     </MSBuild>
     <Error Code="SWIFTBIND133"
@@ -4888,7 +4932,7 @@ TARGETSEOF"
          dotnet msbuild My.Binding.csproj -t:SwiftBindingsMergePackages
            '-p:SwiftBindingsMergeContributions="a.nupkg;b.nupkg;c.nupkg"'
            '-p:SwiftBindingsMergeTargetFrameworks="net10.0-ios26.0;net10.0-ios27.2;net11.0-ios27.2"'
-           [-p:SwiftBindingsMergeOutput=dir]
+           [-p:SwiftBindingsMergeOutput=dir] [-p:SwiftBindingsMergeConfiguration=Release]
 
        The inner double quotes keep MSBuild from splitting the lists at their semicolons, and the
        outer single quotes keep the shell from removing them. The output directory must not hold a
@@ -4915,11 +4959,20 @@ TARGETSEOF"
     <Error Code="SWIFTBIND133"
            Condition="!Exists('$(_SwiftBindingsSdkTasksAssembly)')"
            Text="The SwiftBindings task assembly $(_SwiftBindingsSdkTasksAssembly) is missing, so the packages cannot be merged. Restore SwiftBindings.Sdk again." />
-    <!-- The runtime the copies reference, for the transition check's carrier types: resolved by this
-         project on the toolchain running the merge. -->
+    <!-- The runtime the copies reference, for the transition check's carrier types: this project's
+         references on the toolchain running the merge, read where they are. The merge builds nothing:
+         each contribution was built and checked by its own pack, and the merge only reads packages.
+         A ProjectReference's types are read from its output in the configuration the contributions
+         were packed in (SwiftBindingsMergeConfiguration): by default the one `dotnet pack` builds,
+         Release unless the project sets PackRelease to false. -->
+    <PropertyGroup>
+      <_SwiftBindingsMergeConfiguration>$(SwiftBindingsMergeConfiguration)</_SwiftBindingsMergeConfiguration>
+      <_SwiftBindingsMergeConfiguration Condition="'$(_SwiftBindingsMergeConfiguration)' == '' AND '$(PackRelease)' != 'false'">Release</_SwiftBindingsMergeConfiguration>
+      <_SwiftBindingsMergeConfiguration Condition="'$(_SwiftBindingsMergeConfiguration)' == ''">$(Configuration)</_SwiftBindingsMergeConfiguration>
+    </PropertyGroup>
     <MSBuild Projects="$(MSBuildProjectFullPath)"
              Targets="_SwiftTransitionPackReferenceDirectories"
-             Properties="TargetFramework=%(_SwiftBindingsMergeProjectTfm.Identity)"
+             Properties="TargetFramework=%(_SwiftBindingsMergeProjectTfm.Identity);BuildProjectReferences=false;Configuration=$(_SwiftBindingsMergeConfiguration)"
              Condition="'@(_SwiftBindingsMergeProjectTfm)' != ''">
       <Output TaskParameter="TargetOutputs" ItemName="_SwiftBindingsMergeReference" />
     </MSBuild>
